@@ -139,7 +139,12 @@ def login_user():
             "company_name": user_row['company_name'], # Include company_name
             "phone_number": user_row['phone_number']
         }
-
+    
+    if user_row and check_password_hash(user_row['password_hash'], password):
+        if user_row['user_type'] == 'b2b' and not user_row['is_approved']:
+            current_app.logger.warning(f"Tentative de connexion B2B non approuvé: {email}")
+            return jsonify({"success": False, "message": "Votre compte professionnel est en attente d'approbation."}), 403 # Forbidden or Unauthorized
+            
         try:
             token_payload = {
                 'user_id': user_data['id'],
