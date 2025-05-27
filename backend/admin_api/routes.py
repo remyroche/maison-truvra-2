@@ -19,6 +19,31 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+# Add to backend/admin_api/routes.py
+@admin_api_bp.route('/users/pending-b2b', methods=['GET'])
+@admin_required
+def list_pending_b2b_users():
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT id, email, company_name, nom, prenom, created_at FROM users WHERE user_type = 'b2b' AND is_approved = FALSE AND status = 'pending_approval'")
+    pending_users = [dict(row) for row in cursor.fetchall()]
+    return jsonify({"success": True, "users": pending_users})
+
+@admin_api_bp.route('/users/<int:user_id>/approve-b2b', methods=['POST'])
+@admin_required
+def approve_b2b_user(user_id):
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("UPDATE users SET is_approved = TRUE, status = 'active' WHERE id = ? AND user_type = 'b2b'", (user_id,))
+    db.commit()
+    if cursor.rowcount > 0:
+        # TODO: Send notification email to user
+        current_app.logger.info(f"Utilisateur B2B ID {user_id} approuvé par admin {g.admin_user_id}.")
+        return jsonify({"success": True, "message": "Utilisateur B2B approuvé."})
+    return jsonify({"success": False, "message": "Utilisateur non trouvé ou déjà approuvé."}), 404
+
+
+
 @admin_api_bp.route('/dashboard-stats', methods=['GET'])
 @admin_required
 def get_dashboard_stats():
