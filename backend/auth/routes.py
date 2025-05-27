@@ -4,6 +4,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 import datetime
 import sqlite3 
+import uuid # For mock token generation
+from werkzeug.security import generate_password_hash # Ensure this is imported
 
 from ..database import get_db
 from ..utils import is_valid_email
@@ -7690,7 +7692,7 @@ from werkzeug.security import generate_password_hash # Ensure this is imported
 
 # ... (existing routes: /register, /register-professional, /login) ...
 
-@auth_bp.route('/forgot-password', methods=['POST'])
+@@auth_bp.route('/forgot-password', methods=['POST'])
 def forgot_password():
     data = request.get_json()
     email = data.get('email')
@@ -7707,7 +7709,7 @@ def forgot_password():
 
         if user:
             user_id = user['id']
-            user_type = user['user_type'] # To tailor the reset link if needed (e.g. b2c vs b2b reset page)
+            user_type = user['user_type'] 
             
             # In a real app:
             # 1. Generate a secure, time-limited token (e.g., using itsdangerous.URLSafeTimedSerializer)
@@ -7716,24 +7718,20 @@ def forgot_password():
             # 4. Send an email to the user with this reset_url.
             
             mock_token = str(uuid.uuid4()) # Simple mock token
-            reset_url = f"{current_app.config.get('SITE_BASE_URL', 'http://127.0.0.1:5500/website')}/reset-password.html?token={mock_token}&email={email}"
+            # Use SITE_BASE_URL from config for constructing the link
+            base_url = current_app.config.get('SITE_BASE_URL', 'http://127.0.0.1:5500/website')
+            reset_url = f"{base_url.rstrip('/')}/reset-password.html?token={mock_token}&email={email}"
             
             current_app.logger.info(f"Demande de réinitialisation de mot de passe pour {email} (User ID: {user_id}, Type: {user_type}).")
             current_app.logger.info(f"MOCK EMAIL: Lien de réinitialisation (normalement envoyé par email): {reset_url}")
-            # Here, you would call your email sending function:
-            # send_password_reset_email(email, reset_url)
+            # send_password_reset_email(email, reset_url) # Placeholder for actual email sending
 
-            # For now, we just log it and return success.
-            # The frontend will need to inform the user to check their email (even though we are not sending one here).
-            return jsonify({"success": True, "message": "Si un compte existe pour cet email, un lien de réinitialisation (théoriquement) envoyé."}), 200
-        else:
-            # Do not reveal if an email exists or not for security reasons in forgot password flow
-            current_app.logger.info(f"Tentative de réinitialisation de mot de passe pour un email non trouvé: {email}")
-            return jsonify({"success": True, "message": "Si un compte existe pour cet email, un lien de réinitialisation (théoriquement) envoyé."}), 200
+        # Always return a generic success message to prevent email enumeration
+        return jsonify({"success": True, "message": "Si un compte existe pour cet email, un lien de réinitialisation vous a été (théoriquement) envoyé."}), 200
 
     except Exception as e:
         current_app.logger.error(f"Erreur lors de la demande de mot de passe oublié pour {email}: {e}", exc_info=True)
-        return jsonify({"success": False, "message": "Erreur serveur."}), 500
+        return jsonify({"success": False, "message": "Erreur serveur lors de la demande de réinitialisation."}), 500
     finally:
         if db: db.close()
 
@@ -7741,7 +7739,7 @@ def forgot_password():
 def reset_password():
     data = request.get_json()
     token = data.get('token')
-    email = data.get('email') # Good to have for an extra check, though token should be primary
+    email = data.get('email') 
     new_password = data.get('new_password')
 
     if not token or not new_password or not email:
@@ -7751,30 +7749,22 @@ def reset_password():
 
     db = None
     try:
-        # In a real app:
-        # 1. Validate the token:
-        #    - Query your `password_reset_tokens` table for the token (or its hash).
-        #    - Check if it's associated with the provided email/user.
-        #    - Check if it hasn't expired.
-        #    - Check if it hasn't been used.
-        #    - If using itsdangerous, serializer.loads(token, max_age=...) handles expiry and signature.
-        # For this mock: We'll assume the token is valid if it exists (it's just a UUID here).
-        # We'll find the user by email since we don't store the mock token.
+        # In a real app: Validate the token against stored tokens and expiry
+        # For this mock: We'll find the user by email since the token is not stored.
         
         db = get_db()
         cursor = db.cursor()
         cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
         user = cursor.fetchone()
 
-        if not user:
-            # This case should ideally be caught by token validation in a real app
-            return jsonify({"success": False, "message": "Utilisateur non trouvé ou token invalide."}), 404
+        if not user: # This implies the email (and thus mock token) is invalid or user doesn't exist
+            return jsonify({"success": False, "message": "Lien de réinitialisation invalide ou expiré."}), 400
 
         user_id = user['id']
         hashed_password = generate_password_hash(new_password)
         cursor.execute("UPDATE users SET password_hash = ? WHERE id = ?", (hashed_password, user_id))
         
-        # In a real app, mark the token as used or delete it from `password_reset_tokens` table.
+        # In a real app, invalidate the used token.
         
         db.commit()
         current_app.logger.info(f"Mot de passe réinitialisé pour l'utilisateur ID {user_id} (Email: {email}).")
