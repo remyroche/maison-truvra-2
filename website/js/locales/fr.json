@@ -204,4 +204,8 @@
   "Pro_MDP_Reinitialise_Succes_Connectez_Vous_Modal": "Votre mot de passe a été changé. Redirection vers la page de connexion...",
   "Pro_Erreur_Reinitialisation_MDP": "Erreur lors de la réinitialisation du mot de passe. Le lien est peut-être invalide ou expiré."
   "B2B_ACCOUNT_NEEDS_APPROVAL": "Un administrateur doit valider votre compte."
+  "Livraison_calculee_etape_suivante": "Calculée à l'étape suivante",
+  "N_A": "N/A",
+  "thumbnail_alt_text": "{productName} miniature",
+  "Erreur_parsing_details_commande": "Erreur lors de l'analyse des détails de la commande."
 }
