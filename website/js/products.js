@@ -75,6 +75,20 @@ async function fetchAndDisplayProducts(category = 'all') {
     }
 }
 
+async function displayProductReviews(productId) {
+    const reviewsListDiv = document.getElementById('reviews-list');
+    if (!reviewsListDiv) return;
+
+    try {
+        const response = await makeApiRequest(`/products/${productId}/reviews`);
+        if (response.success && response.reviews) {
+            if (response.reviews.length === 0) {
+                reviewsListDiv.innerHTML = `<p class="text-sm text-brand-warm-taupe italic" data-translate-key="Aucun_avis_pour_le_moment">${t('Aucun_avis_pour_le_moment')}</p>`;
+            } else {
+                reviewsListDiv.innerHTML = response.reviews.map(review => `
+                    <div class="border-b border-brand-cream pb-2">
+                        <p class="font-semibold text-brand-near-black">${review.user_prenom || t('Utilisateur_anonyme')} - <span class="math-inline">\{new Date\(review\.review\_date\)\.toLocaleDateString\(getCurrentLang\(\) \|\| 'fr\-FR'\)\}</p\>
+
 function setupCategoryFilters() {
     const filterContainer = document.getElementById('product-categories-filter');
     if (filterContainer) {
