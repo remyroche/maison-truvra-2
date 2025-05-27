@@ -16,6 +16,8 @@ from .orders import orders_bp
 from .newsletter import newsletter_bp
 from .professional import professional_bp
 from flask import g 
+from flask import Blueprint
+from . import routes 
 
 from .config import AppConfig, configure_asset_paths # Import new helper
 from .database import init_db, populate_initial_data, init_db_command
