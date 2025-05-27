@@ -1,354 +1,609 @@
 // website/js/auth.js
 
-function getAuthToken() {
-    return sessionStorage.getItem('authToken');
+// Ensure API_BASE_URL is defined (from config.js)
+// Ensure makeApiRequest is defined (from api.js)
+// Ensure translate, currentLanguage are defined (from i18n.js)
+// Ensure showGlobalMessage is defined (from ui.js)
+
+function getToken() {
+    return localStorage.getItem('authToken');
 }
 
-function setAuthToken(token) {
-    if (token) sessionStorage.setItem('authToken', token);
-    else sessionStorage.removeItem('authToken');
-}// website/js/auth.js
-
-/**
- * Retrieves the authentication token from session storage.
- * @returns {string|null} The auth token or null if not found.
- */
-function getAuthToken() {
-    return sessionStorage.getItem('authToken');
+function setToken(token) {
+    localStorage.setItem('authToken', token);
 }
 
-/**
- * Sets the authentication token in session storage.
- * @param {string|null} token - The auth token to set, or null to remove.
- */
-function setAuthToken(token) {
-    if (token) {
-        sessionStorage.setItem('authToken', token);
-    } else {
-        sessionStorage.removeItem('authToken');
-    }
+function removeToken() {
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('authUser');
 }
 
-/**
- * Retrieves the current user data from session storage.
- * @returns {object|null} The user object or null if not found/error.
- */
-function getCurrentUser() {
-    const userString = sessionStorage.getItem('currentUser');
-    if (userString) {
-        try {
-            return JSON.parse(userString);
-        } catch (e) {
-            console.error(t('Erreur_lors_du_parsing_des_donnees_utilisateur'), e); // i18n
-            sessionStorage.removeItem('currentUser');
-            sessionStorage.removeItem('authToken');
-            return null;
-        }
-    }
-    return null;
+function setUser(user) {
+    localStorage.setItem('authUser', JSON.stringify(user));
 }
 
-/**
- * Sets the current user data and token in session storage.
- * Updates UI elements related to login state and cart count.
- * @param {object|null} userData - The user object, or null to log out.
- * @param {string|null} [token=null] - The auth token.
- */
-function setCurrentUser(userData, token = null) {
-    if (userData) {
-        sessionStorage.setItem('currentUser', JSON.stringify(userData));
-        if (token) setAuthToken(token);
-    } else {
-        sessionStorage.removeItem('currentUser');
-        sessionStorage.removeItem('authToken');
-    }
-    if (typeof updateLoginState === "function") updateLoginState();
-    if (typeof updateCartCountDisplay === "function") updateCartCountDisplay();
+function getUser() {
+    const user = localStorage.getItem('authUser');
+    return user ? JSON.parse(user) : null;
 }
 
-/**
- * Logs out the current user.
- * Clears user data from session storage and updates UI.
- * Redirects to account page if on account or payment page.
- */
-async function logoutUser() {
-    // Optionally: Call a backend logout endpoint if it exists to invalidate server-side session/token
-    // await makeApiRequest('/auth/logout', 'POST', null, true);
-    setCurrentUser(null); // Clears session storage and updates UI
-    if (typeof showGlobalMessage === "function" && typeof t === "function") {
-        showGlobalMessage(t('Deconnecte_message'), "info");
-    }
-
-    if (document.body.id === 'page-compte' || document.body.id === 'page-paiement') {
-        window.location.href = 'compte.html';
-    } else if (document.body.id === 'page-professionnels') { // Also redirect B2B from their dashboard
-        window.location.href = 'professionnels.html';
-    } else {
-        if (typeof updateLoginState === "function") updateLoginState(); // Re-update for other pages
-        if (document.body.id === 'page-compte' && typeof displayAccountDashboard === "function") {
-            displayAccountDashboard(); // Refresh account page view
-        }
-    }
+function isUserLoggedIn() {
+    return !!getToken();
 }
 
-/**
- * Updates the UI elements (account links in header/mobile menu) based on login state.
- */
-function updateLoginState() {
-    const currentUser = getCurrentUser();
-    const accountLinkTextDesktop = document.getElementById('account-link-text-desktop');
-    const accountLinkTextMobile = document.getElementById('account-link-text-mobile');
-    const accountLinkDesktopContainer = document.querySelector('header nav a[href="compte.html"]');
-    const accountLinkMobileContainer = document.querySelector('#mobile-menu-dropdown a[href="compte.html"]');
-
-    const desktopTextElement = accountLinkTextDesktop || (accountLinkDesktopContainer ? accountLinkDesktopContainer.querySelector('span.text-xs') : null);
-    const mobileTextElement = accountLinkTextMobile || accountLinkMobileContainer;
-
-    if (currentUser) {
-        const userName = currentUser.prenom || t('Mon_Compte');
-        if (desktopTextElement) {
-            desktopTextElement.textContent = userName;
-        } else if (accountLinkDesktopContainer) { // Fallback if span not found, reconstruct
-             accountLinkDesktopContainer.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-7 h-7 text-brand-classic-gold"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg> <span id="account-link-text-desktop" class="ml-1 text-xs">${userName}</span>`;
-        }
-        if (mobileTextElement) mobileTextElement.textContent = `${t('Mon_Compte_Menu')} (${userName})`;
-
-    } else {
-        if (desktopTextElement) {
-            desktopTextElement.textContent = t('Mon_Compte_Menu');
-        } else if (accountLinkDesktopContainer) { // Fallback if span not found
-            accountLinkDesktopContainer.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-7 h-7"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg> <span id="account-link-text-desktop" class="ml-1 text-xs">${t('Mon_Compte_Menu')}</span>`;
-        }
-        if (mobileTextElement) mobileTextElement.textContent = t('Mon_Compte_Menu');
-    }
-}
-
-
-/**
- * Handles the B2C login form submission.
- * @param {Event} event - The form submission event.
- */
-async function handleLogin(event) {
-    event.preventDefault();
-    const loginForm = event.target;
-    if (typeof clearFormErrors === "function") clearFormErrors(loginForm);
-    const emailField = loginForm.querySelector('#login-email');
-    const passwordField = loginForm.querySelector('#login-password');
-    const email = emailField.value;
-    const password = passwordField.value;
-    const loginMessageElement = document.getElementById('login-message');
-
-    let isValid = true;
-    if (loginMessageElement) loginMessageElement.textContent = '';
-
-    if (!email || !validateEmail(email)) { // validateEmail from ui.js
-        if (typeof setFieldError === "function") setFieldError(emailField, t('Veuillez_entrer_une_adresse_e-mail_valide'));
-        isValid = false;
-    }
-    if (!password) {
-        if (typeof setFieldError === "function") setFieldError(passwordField, t('Veuillez_entrer_votre_mot_de_passe'));
-        isValid = false;
-    }
-    if (!isValid) {
-        if (typeof showGlobalMessage === "function") showGlobalMessage(t('Veuillez_corriger_les_erreurs_dans_le_formulaire'), "error");
-        return;
-    }
-
-    if (typeof showGlobalMessage === "function") showGlobalMessage(t('Connexion_en_cours'), "info", 60000);
-
-    try {
-        const result = await makeApiRequest('/auth/login', 'POST', { email, password }); // makeApiRequest from api.js
-        if (result.success && result.user && result.token) {
-            // Ensure B2C users are not trying to log in via B2B specific forms and vice-versa if needed.
-            // For a general login form, this check might be less strict or handled by UI context.
-            setCurrentUser(result.user, result.token);
-            if (typeof showGlobalMessage === "function") showGlobalMessage(result.message || t('Connexion_reussie'), "success");
-            loginForm.reset();
-            if (typeof displayAccountDashboard === "function") displayAccountDashboard();
-        } else {
-            setCurrentUser(null); // Clear any partial login state
-            const generalErrorMessage = result.message || t('Echec_de_la_connexion_Verifiez_vos_identifiants');
-            if (typeof showGlobalMessage === "function") showGlobalMessage(generalErrorMessage, "error");
-            if (loginMessageElement) loginMessageElement.textContent = generalErrorMessage;
-            if (typeof setFieldError === "function") {
-                setFieldError(emailField, " "); // Mark field as potentially incorrect without specific message
-                setFieldError(passwordField, generalErrorMessage); // Show general error on password or a specific field
-            }
-        }
-    } catch (error) {
-        setCurrentUser(null);
-        if (loginMessageElement) loginMessageElement.textContent = error.message || t('Erreur_de_connexion_au_serveur');
-        // showGlobalMessage might have already displayed the error from makeApiRequest
-    }
-}
-
-/**
- * Handles the B2C registration form submission.
- * @param {Event} event - The form submission event.
- */
-async function handleRegistrationForm(event) {
-    event.preventDefault();
-    const form = event.target;
-    if (typeof clearFormErrors === "function") clearFormErrors(form);
-
-    const emailField = form.querySelector('#register-email');
-    const passwordField = form.querySelector('#register-password');
-    const confirmPasswordField = form.querySelector('#register-confirm-password');
-    const nomField = form.querySelector('#register-nom');
-    const prenomField = form.querySelector('#register-prenom');
-    const messageElement = document.getElementById('register-message'); // For form-specific messages
-    if (messageElement) messageElement.textContent = '';
-
-
-    let isValid = true;
-    if (!emailField || !emailField.value || !validateEmail(emailField.value)) {
-        if (typeof setFieldError === "function" && emailField) setFieldError(emailField, t('E-mail_invalide'));
-        isValid = false;
-    }
-    if (!nomField || !nomField.value.trim()) {
-        if (typeof setFieldError === "function" && nomField) setFieldError(nomField, t('Nom_requis'));
-        isValid = false;
-    }
-    if (!prenomField || !prenomField.value.trim()) {
-        if (typeof setFieldError === "function" && prenomField) setFieldError(prenomField, t('Prenom_requis'));
-        isValid = false;
-    }
-    if (!passwordField || passwordField.value.length < 8) {
-        if (typeof setFieldError === "function" && passwordField) setFieldError(passwordField, t('Mot_de_passe_8_caracteres'));
-        isValid = false;
-    }
-    if (!confirmPasswordField || passwordField.value !== confirmPasswordField.value) {
-        if (typeof setFieldError === "function" && confirmPasswordField) setFieldError(confirmPasswordField, t('Mots_de_passe_ne_correspondent_pas'));
-        isValid = false;
-    }
-
-    if (!isValid) {
-        if (typeof showGlobalMessage === "function") showGlobalMessage(t('Veuillez_corriger_les_erreurs_formulaire_inscription'), "error");
-        return;
-    }
-
-    if (typeof showGlobalMessage === "function") showGlobalMessage(t('Creation_du_compte'), "info");
-    try {
-        const result = await makeApiRequest('/auth/register', 'POST', {
-            email: emailField.value,
-            password: passwordField.value,
-            nom: nomField.value,
-            prenom: prenomField.value
-        });
-        if (result.success) {
-            if (typeof showGlobalMessage === "function") showGlobalMessage(result.message || t('Compte_cree_avec_succes_Veuillez_vous_connecter'), "success");
-            form.reset();
-            // Optionally switch to login view
-            const loginForm = document.getElementById('login-form');
-            const registerForm = document.getElementById('register-form');
-            const newCustomerSection = document.getElementById('new-customer-section');
-            if(loginForm) loginForm.style.display = 'block';
-            if(registerForm) registerForm.style.display = 'none';
-            if(newCustomerSection) newCustomerSection.style.display = 'block';
-
-
-        } else {
-            if (typeof showGlobalMessage === "function") showGlobalMessage(result.message || t('Erreur_lors_de_linscription'), "error");
-            if (messageElement) messageElement.textContent = result.message || t('Erreur_lors_de_linscription');
-        }
-    } catch (error) {
-        // Error message likely shown by makeApiRequest
-        if (messageElement) messageElement.textContent = error.message || t('Erreur_serveur');
-        console.error("Erreur d'inscription:", error);
-    }
-}
-
-/**
- * Displays the B2C user account dashboard.
- * Hides login/register forms and shows user info and order history.
- */
-function displayAccountDashboard() {
+async function checkAuth() {
+    const loadingDiv = document.getElementById('loading-account');
     const loginRegisterSection = document.getElementById('login-register-section');
-    const accountDashboardSection = document.getElementById('account-dashboard-section');
-    const currentUser = getCurrentUser();
+    const b2cAccountView = document.getElementById('b2c-account-view');
+    const b2bAccountView = document.getElementById('b2b-account-view');
 
-    if (currentUser && loginRegisterSection && accountDashboardSection) {
-        loginRegisterSection.style.display = 'none';
-        accountDashboardSection.style.display = 'block';
-        const dashboardUsername = document.getElementById('dashboard-username');
-        const dashboardEmail = document.getElementById('dashboard-email');
+    if (loadingDiv) loadingDiv.classList.remove('hidden');
+    if (loginRegisterSection) loginRegisterSection.classList.add('hidden');
+    if (b2cAccountView) b2cAccountView.classList.add('hidden');
+    if (b2bAccountView) b2bAccountView.classList.add('hidden');
 
-        if (dashboardUsername) dashboardUsername.textContent = `${currentUser.prenom || ''} ${currentUser.nom || ''}`;
-        if (dashboardEmail) dashboardEmail.textContent = currentUser.email;
-
-        const logoutButton = document.getElementById('logout-button');
-        if (logoutButton) {
-            logoutButton.removeEventListener('click', logoutUser); // Avoid multiple listeners
-            logoutButton.addEventListener('click', logoutUser);
-        }
-        if (typeof loadOrderHistory === "function") loadOrderHistory();
-    } else if (loginRegisterSection) {
-        loginRegisterSection.style.display = 'block';
-        if (accountDashboardSection) accountDashboardSection.style.display = 'none';
-    }
-    // Translate static parts of the dashboard if they use data-translate-key
-    if(window.translatePageElements) translatePageElements();
-}
-
-/**
- * Loads and displays the B2C user's order history.
- */
-async function loadOrderHistory() {
-    const orderHistoryContainer = document.getElementById('order-history-container');
-    if (!orderHistoryContainer) return;
-
-    const currentUser = getCurrentUser();
-    if (!currentUser) {
-        orderHistoryContainer.innerHTML = `<p class="text-sm text-brand-warm-taupe italic">${t('Veuillez_vous_connecter_pour_voir_votre_historique')}</p>`;
-        return;
+    const token = getToken();
+    if (!token) {
+        if (loadingDiv) loadingDiv.classList.add('hidden');
+        if (loginRegisterSection) loginRegisterSection.classList.remove('hidden');
+        updateLoginStatusInHeader(false); // Update header UI
+        return null;
     }
 
-    orderHistoryContainer.innerHTML = `<p class="text-sm text-brand-warm-taupe italic">${t('Chargement_de_lhistorique_des_commandes')}</p>`;
     try {
-        const ordersData = await makeApiRequest('/orders/history', 'GET', null, true); // Requires auth
-        if (ordersData.success && ordersData.orders) {
-            if (ordersData.orders.length === 0) {
-                orderHistoryContainer.innerHTML = `<p class="text-sm text-brand-warm-taupe italic">${t('Vous_navez_aucune_commande_pour_le_moment')}</p>`;
+        const response = await makeApiRequest('/api/check-auth', 'GET', null, true);
+        if (response.isAuthenticated && response.user) {
+            setUser(response.user);
+            updateLoginStatusInHeader(true, response.user); // Update header UI
+            if (loadingDiv) loadingDiv.classList.add('hidden');
+            if (response.user.role === 'b2c') {
+                if (b2cAccountView) {
+                    b2cAccountView.classList.remove('hidden');
+                    displayLoggedInB2CView(response.user);
+                }
+            } else if (response.user.role === 'b2b') {
+                if (b2bAccountView) {
+                    b2bAccountView.classList.remove('hidden');
+                    displayLoggedInB2BView(response.user);
+                }
             } else {
-                let html = '<ul class="space-y-4">';
-                // Implement pagination here if ordersData.pagination exists
-                // For now, displaying all returned orders
-                ordersData.orders.forEach(order => {
-                    const orderDate = new Date(order.order_date).toLocaleDateString(getCurrentLang() || 'fr-FR');
-                    const statusText = t(order.status) || order.status; // Translate status if key exists
-                    html += `
-                        <li class="p-4 border border-brand-warm-taupe/50 rounded-md bg-white">
-                            <div class="flex justify-between items-center mb-2">
-                                <p class="font-semibold text-brand-near-black">${t('Commande_')} #${order.order_id}</p>
-                                <span class="px-2 py-1 text-xs font-semibold rounded-full ${getOrderStatusClass(order.status)}">${statusText}</span>
-                            </div>
-                            <p class="text-sm"><strong>${t('Date')}:</strong> ${orderDate}</p>
-                            <p class="text-sm"><strong>${t('Total')}:</strong> ${parseFloat(order.total_amount).toFixed(2)} €</p>
-                            <button class="text-sm text-brand-classic-gold hover:underline mt-2" onclick="viewOrderDetail('${order.order_id}')" data-translate-key="Voir_details">${t('Voir_details')}</button>
-                        </li>`;
-                });
-                html += '</ul>';
-                // Add pagination controls here based on ordersData.pagination
-                orderHistoryContainer.innerHTML = html;
+                 if (loginRegisterSection) loginRegisterSection.classList.remove('hidden'); // Fallback
             }
+            return response.user;
         } else {
-            orderHistoryContainer.innerHTML = `<p class="text-sm text-red-600 italic">${ordersData.message || t('Impossible_de_charger_lhistorique_des_commandes')}</p>`;
+            throw new Error('Authentication check failed');
         }
     } catch (error) {
-        orderHistoryContainer.innerHTML = `<p class="text-sm text-red-600 italic">${t('Impossible_de_charger_lhistorique_des_commandes')} ${error.message}</p>`;
-        console.error("Error loading order history:", error);
+        console.error('Auth check failed:', error);
+        removeToken();
+        if (loadingDiv) loadingDiv.classList.add('hidden');
+        if (loginRegisterSection) loginRegisterSection.classList.remove('hidden');
+        updateLoginStatusInHeader(false); // Update header UI
+        return null;
     }
 }
 
-/**
- * Placeholder for viewing order details (B2C).
- * @param {string|number} orderId - The ID of the order to view.
- */
-function viewOrderDetail(orderId) {
-    // This would typically navigate to a new page or open a modal with order details
-    // For now, it shows a global message.
-    if (typeof showGlobalMessage === "function" && typeof t === "function") {
-        showGlobalMessage(`${t('Detail_commande_')} #${orderId} (${t('Fonctionnalite_a_implementer')}).`, 'info');
+
+function displayLoggedInB2CView(user) {
+    document.getElementById('b2c-user-name').textContent = user.name || user.email;
+    
+    // Display profile information
+    document.getElementById('display-b2c-name').textContent = user.name || translate('account.notSet');
+    document.getElementById('display-b2c-email').textContent = user.email || translate('account.notSet');
+    document.getElementById('display-b2c-phone').textContent = user.phone || translate('account.notSet');
+    document.getElementById('display-b2c-shipping-address').textContent = user.address_shipping || translate('account.notSet');
+    document.getElementById('display-b2c-billing-address').textContent = user.address_billing || translate('account.notSet');
+
+    // Populate edit form
+    document.getElementById('edit-b2c-name').value = user.name || '';
+    document.getElementById('edit-b2c-email').value = user.email || '';
+    document.getElementById('edit-b2c-phone').value = user.phone || '';
+    document.getElementById('edit-b2c-shipping-address').value = user.address_shipping || '';
+    document.getElementById('edit-b2c-billing-address').value = user.address_billing || '';
+
+    fetchB2COrders();
+}
+
+function displayLoggedInB2BView(user) {
+    document.getElementById('b2b-contact-name').textContent = user.contact_name || user.email;
+    document.getElementById('b2b-company-name').textContent = user.company_name || '';
+    
+    const statusEl = document.getElementById('b2b-account-status');
+    if (user.is_approved && user.status === 'active') {
+        statusEl.textContent = translate('account.b2bStatusApproved');
+        statusEl.className = 'text-green-600 font-semibold';
+    } else if (user.status === 'pending_approval') {
+        statusEl.textContent = translate('account.b2bStatusPending');
+        statusEl.className = 'text-yellow-600 font-semibold';
+    } else if (user.status === 'suspended') {
+        statusEl.textContent = translate('account.b2bStatusSuspended');
+        statusEl.className = 'text-red-600 font-semibold';
+    } else if (user.status === 'rejected') {
+         statusEl.textContent = translate('account.b2bStatusRejected');
+        statusEl.className = 'text-red-600 font-semibold';
     }
-    console.log("Voir détails pour commande B2C:", orderId);
+
+
+    // Display B2B profile information
+    document.getElementById('display-b2b-company-name').textContent = user.company_name || translate('account.notSet');
+    document.getElementById('display-b2b-siret').textContent = user.siret || translate('account.notSet');
+    document.getElementById('display-b2b-vat').textContent = user.vat_number || translate('account.notSet');
+    document.getElementById('display-b2b-contact-name').textContent = user.contact_name || translate('account.notSet');
+    document.getElementById('display-b2b-email').textContent = user.email || translate('account.notSet');
+    document.getElementById('display-b2b-phone').textContent = user.phone || translate('account.notSet');
+    document.getElementById('display-b2b-billing-address').textContent = user.billing_address || translate('account.notSet');
+    document.getElementById('display-b2b-shipping-address').textContent = user.shipping_address || translate('account.notSet');
+    
+    // Populate B2B edit form (only editable fields)
+    document.getElementById('edit-b2b-contact-name').value = user.contact_name || '';
+    document.getElementById('edit-b2b-phone').value = user.phone || '';
+    document.getElementById('edit-b2b-shipping-address').value = user.shipping_address || '';
+
+
+    fetchB2BInvoices();
+}
+
+
+async function fetchB2COrders() {
+    const orderHistoryDiv = document.getElementById('b2c-order-history');
+    if (!orderHistoryDiv) return;
+
+    try {
+        const orders = await makeApiRequest('/api/orders', 'GET', null, true); // Assuming this endpoint exists and returns user's orders
+        if (orders && orders.length > 0) {
+            orderHistoryDiv.innerHTML = orders.map(order => `
+                <div class="p-3 border rounded-md bg-gray-50 hover:shadow-sm transition-shadow">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <p class="font-semibold text-brand-primary">${translate('account.order')} #${order.id} <span class="text-xs px-2 py-0.5 rounded-full ${getOrderStatusClass(order.status)}">${translate(`orderStatus.${order.status}`)}</span></p>
+                            <p class="text-sm text-gray-600">${translate('account.orderDate')}: ${new Date(order.created_at).toLocaleDateString(currentLanguage || 'fr-FR')}</p>
+                            <p class="text-sm text-gray-600">${translate('account.orderTotal')}: ${formatPrice(order.total_amount, order.currency)}</p>
+                        </div>
+                        <button onclick="viewOrderDetail(${order.id})" class="text-sm bg-brand-accent text-brand-primary hover:opacity-90 font-semibold py-1 px-3 rounded-md transition duration-150" data-i18n="account.viewDetails">Voir détails</button>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            orderHistoryDiv.innerHTML = `<p data-i18n="account.noOrders">${translate('account.noOrders')}</p>`;
+        }
+    } catch (error) {
+        console.error('Error fetching B2C orders:', error);
+        orderHistoryDiv.innerHTML = `<p class="text-red-500" data-i18n="account.errorLoadingOrders">${translate('account.errorLoadingOrders')}</p>`;
+    }
+}
+
+function getOrderStatusClass(status) {
+    switch (status) {
+        case 'pending': return 'bg-yellow-200 text-yellow-800';
+        case 'processing': return 'bg-blue-200 text-blue-800';
+        case 'shipped': return 'bg-green-200 text-green-800';
+        case 'delivered': return 'bg-green-300 text-green-900';
+        case 'cancelled': return 'bg-red-200 text-red-800';
+        case 'refunded': return 'bg-gray-200 text-gray-800';
+        default: return 'bg-gray-100 text-gray-700';
+    }
+}
+
+
+async function viewOrderDetail(orderId) {
+    const modal = document.getElementById('order-detail-modal');
+    const contentDiv = document.getElementById('order-detail-content');
+    if (!modal || !contentDiv) return;
+
+    contentDiv.innerHTML = `<p data-i18n="account.loadingOrderDetails">${translate('account.loadingOrderDetails')}...</p>`;
+    modal.style.display = 'block';
+
+    try {
+        const order = await makeApiRequest(`/api/orders/${orderId}`, 'GET', null, true);
+        if (order) {
+            let itemsHtml = '<ul class="list-disc pl-5 space-y-1 mt-2">';
+            order.items.forEach(item => {
+                itemsHtml += `<li>${item.quantity} x ${item.name_fr || item.name_en} (${formatPrice(item.price_at_purchase, order.currency)})</li>`;
+            });
+            itemsHtml += '</ul>';
+
+            contentDiv.innerHTML = `
+                <p><strong>${translate('account.order')} #:</strong> ${order.id}</p>
+                <p><strong>${translate('account.orderDate')}:</strong> ${new Date(order.created_at).toLocaleString(currentLanguage || 'fr-FR')}</p>
+                <p><strong>${translate('account.orderStatus')}:</strong> <span class="px-2 py-0.5 rounded-full ${getOrderStatusClass(order.status)}">${translate(`orderStatus.${order.status}`)}</span></p>
+                <p><strong>${translate('account.orderTotal')}:</strong> ${formatPrice(order.total_amount, order.currency)}</p>
+                <div class="mt-3">
+                    <h4 class="font-semibold text-md mb-1">${translate('account.shippingAddress')}:</h4>
+                    <p class="whitespace-pre-line">${order.shipping_address || translate('account.notSet')}</p>
+                </div>
+                 <div class="mt-3">
+                    <h4 class="font-semibold text-md mb-1">${translate('account.billingAddress')}:</h4>
+                    <p class="whitespace-pre-line">${order.billing_address || translate('account.notSet')}</p>
+                </div>
+                <div class="mt-3">
+                    <h4 class="font-semibold text-md mb-1">${translate('cart.items')}:</h4>
+                    ${itemsHtml}
+                </div>
+            `;
+        } else {
+            contentDiv.innerHTML = `<p class="text-red-500" data-i18n="account.errorLoadingOrderDetails">${translate('account.errorLoadingOrderDetails')}</p>`;
+        }
+    } catch (error) {
+        console.error('Error fetching order details:', error);
+        contentDiv.innerHTML = `<p class="text-red-500">${translate('account.errorLoadingOrderDetails')}: ${error.message || 'Unknown error'}</p>`;
+    }
+}
+
+
+async function fetchB2BInvoices() {
+    const invoiceHistoryDiv = document.getElementById('b2b-invoice-history');
+    if (!invoiceHistoryDiv) return;
+
+    try {
+        // Assuming an endpoint like /api/professional/invoices exists for B2B users
+        const invoices = await makeApiRequest('/api/professional/invoices', 'GET', null, true); 
+        if (invoices && invoices.length > 0) {
+            invoiceHistoryDiv.innerHTML = invoices.map(invoice => `
+                <div class="p-3 border rounded-md bg-gray-50 hover:shadow-sm transition-shadow">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <p class="font-semibold text-brand-primary">${translate('account.invoice')} #${invoice.invoice_number}</p>
+                            <p class="text-sm text-gray-600">${translate('account.invoiceDate')}: ${new Date(invoice.invoice_date).toLocaleDateString(currentLanguage || 'fr-FR')}</p>
+                            <p class="text-sm text-gray-600">${translate('account.invoiceTotal')}: ${formatPrice(invoice.total_amount, invoice.currency)}</p>
+                             <p class="text-sm text-gray-600">${translate('account.invoiceStatus')}: <span class="font-medium ${invoice.status === 'paid' ? 'text-green-600' : 'text-red-600'}">${translate(`invoiceStatus.${invoice.status}`)}</span></p>
+                        </div>
+                        <a href="${API_BASE_URL}/api/invoices/${invoice.id}/pdf" target="_blank" class="text-sm bg-brand-accent text-brand-primary hover:opacity-90 font-semibold py-1 px-3 rounded-md transition duration-150" data-i18n="account.downloadInvoice">Télécharger PDF</a>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            invoiceHistoryDiv.innerHTML = `<p data-i18n="account.noInvoices">${translate('account.noInvoices')}</p>`;
+        }
+    } catch (error) {
+        console.error('Error fetching B2B invoices:', error);
+        invoiceHistoryDiv.innerHTML = `<p class="text-red-500" data-i18n="account.errorLoadingInvoices">${translate('account.errorLoadingInvoices')}</p>`;
+    }
+}
+
+
+async function initAccountPage() {
+    const user = await checkAuth(); // This will also display the correct view
+
+    const loginForm = document.getElementById('login-form');
+    const registerForm = document.getElementById('register-form');
+    const logoutButton = document.getElementById('logout-button');
+    const b2bLogoutButton = document.getElementById('b2b-logout-button');
+    const authMessageDiv = document.getElementById('auth-message');
+
+    // Edit B2C Profile
+    const showEditProfileFormBtn = document.getElementById('show-edit-profile-form-btn');
+    const editProfileFormContainer = document.getElementById('b2c-edit-profile-form-container');
+    const editProfileForm = document.getElementById('b2c-edit-profile-form');
+    const cancelEditProfileBtn = document.getElementById('cancel-edit-profile-btn');
+    const editProfileMessageDiv = document.getElementById('edit-profile-message');
+
+    // Change B2C Password
+    const showChangePasswordFormBtn = document.getElementById('show-change-password-form-btn');
+    const changePasswordFormContainer = document.getElementById('b2c-change-password-form-container');
+    const changePasswordForm = document.getElementById('b2c-change-password-form');
+    const cancelChangePasswordBtn = document.getElementById('cancel-change-password-btn');
+    const changePasswordMessageDiv = document.getElementById('change-password-message');
+
+    // Edit B2B Profile
+    const showEditB2BProfileFormBtn = document.getElementById('show-edit-b2b-profile-form-btn');
+    const editB2BProfileFormContainer = document.getElementById('b2b-edit-profile-form-container');
+    const editB2BProfileForm = document.getElementById('b2b-edit-profile-form');
+    const cancelEditB2BProfileBtn = document.getElementById('cancel-edit-b2b-profile-btn');
+    const editB2BProfileMessageDiv = document.getElementById('edit-b2b-profile-message');
+
+    // Change B2B Password
+    const showB2BChangePasswordFormBtn = document.getElementById('show-b2b-change-password-form-btn');
+    const b2bChangePasswordFormContainer = document.getElementById('b2b-change-password-form-container');
+    const b2bChangePasswordForm = document.getElementById('b2b-change-password-form');
+    const cancelB2BChangePasswordBtn = document.getElementById('cancel-b2b-change-password-btn');
+    const b2bChangePasswordMessageDiv = document.getElementById('b2b-change-password-message');
+
+
+    // Order Detail Modal
+    const closeModalBtn = document.getElementById('close-order-detail-modal');
+    const orderDetailModal = document.getElementById('order-detail-modal');
+
+    if (closeModalBtn && orderDetailModal) {
+        closeModalBtn.onclick = function() {
+            orderDetailModal.style.display = "none";
+        }
+        window.onclick = function(event) {
+            if (event.target == orderDetailModal) {
+                orderDetailModal.style.display = "none";
+            }
+        }
+    }
+
+
+    if (loginForm) {
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            authMessageDiv.textContent = '';
+            const email = loginForm.email.value;
+            const password = loginForm.password.value;
+            const role = loginForm.role.value; // Get role from select
+            try {
+                const data = await makeApiRequest('/api/login', 'POST', { email, password, role });
+                setToken(data.token);
+                setUser(data.user);
+                authMessageDiv.textContent = translate('account.loginSuccess');
+                authMessageDiv.className = 'text-green-600';
+                await checkAuth(); // Re-check auth to display correct view
+                // Optionally redirect or update UI further
+                 window.location.reload(); // Simple reload to refresh everything
+            } catch (error) {
+                authMessageDiv.textContent = error.message || translate('account.loginError');
+                authMessageDiv.className = 'text-red-600';
+            }
+        });
+    }
+
+    if (registerForm) {
+        registerForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            authMessageDiv.textContent = '';
+            const name = registerForm.name.value;
+            const email = registerForm.email.value;
+            const password = registerForm.password.value;
+            // For B2C registration, role is implicitly 'b2c'
+            try {
+                await makeApiRequest('/api/register', 'POST', { name, email, password, role: 'b2c' });
+                authMessageDiv.textContent = translate('account.registerSuccess');
+                authMessageDiv.className = 'text-green-600';
+                // Optionally auto-login or prompt to login
+                loginForm.email.value = email; // Pre-fill login form
+            } catch (error) {
+                authMessageDiv.textContent = error.message || translate('account.registerError');
+                authMessageDiv.className = 'text-red-600';
+            }
+        });
+    }
+
+    function handleLogout() {
+        removeToken();
+        authMessageDiv.textContent = translate('account.logoutSuccess');
+        authMessageDiv.className = 'text-green-600';
+        checkAuth(); // Re-check auth to display login/register view
+        window.location.reload(); // Simple reload
+    }
+
+    if (logoutButton) {
+        logoutButton.addEventListener('click', handleLogout);
+    }
+    if (b2bLogoutButton) {
+        b2bLogoutButton.addEventListener('click', handleLogout);
+    }
+
+    // B2C Profile Edit Logic
+    if (showEditProfileFormBtn && editProfileFormContainer && cancelEditProfileBtn) {
+        showEditProfileFormBtn.addEventListener('click', () => {
+            editProfileFormContainer.classList.remove('hidden');
+            showEditProfileFormBtn.classList.add('hidden');
+            // Hide change password form if open
+            if (changePasswordFormContainer) changePasswordFormContainer.classList.add('hidden');
+            if (showChangePasswordFormBtn) showChangePasswordFormBtn.classList.remove('hidden');
+
+            // Re-populate form with latest data in case it was fetched again
+            const currentUser = getUser();
+            if (currentUser && currentUser.role === 'b2c') {
+                document.getElementById('edit-b2c-name').value = currentUser.name || '';
+                document.getElementById('edit-b2c-email').value = currentUser.email || '';
+                document.getElementById('edit-b2c-phone').value = currentUser.phone || '';
+                document.getElementById('edit-b2c-shipping-address').value = currentUser.address_shipping || '';
+                document.getElementById('edit-b2c-billing-address').value = currentUser.address_billing || '';
+            }
+        });
+        cancelEditProfileBtn.addEventListener('click', () => {
+            editProfileFormContainer.classList.add('hidden');
+            showEditProfileFormBtn.classList.remove('hidden');
+            editProfileMessageDiv.textContent = '';
+        });
+    }
+
+    if (editProfileForm) {
+        editProfileForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            editProfileMessageDiv.textContent = '';
+            const updatedData = {
+                name: editProfileForm.name.value,
+                email: editProfileForm.email.value,
+                phone: editProfileForm.phone.value,
+                address_shipping: editProfileForm.address_shipping.value,
+                address_billing: editProfileForm.address_billing.value,
+            };
+            try {
+                const response = await makeApiRequest('/api/user/profile', 'PUT', updatedData, true);
+                setUser(response.user); // Update local storage with new user data
+                editProfileMessageDiv.textContent = translate('account.profileUpdateSuccess');
+                editProfileMessageDiv.className = 'text-green-600';
+                // Update displayed info and hide form
+                displayLoggedInB2CView(response.user); // Refresh displayed data
+                editProfileFormContainer.classList.add('hidden');
+                showEditProfileFormBtn.classList.remove('hidden');
+            } catch (error) {
+                editProfileMessageDiv.textContent = error.message || translate('account.profileUpdateError');
+                editProfileMessageDiv.className = 'text-red-600';
+            }
+        });
+    }
+
+    // B2C Change Password Logic
+    if (showChangePasswordFormBtn && changePasswordFormContainer && cancelChangePasswordBtn) {
+        showChangePasswordFormBtn.addEventListener('click', () => {
+            changePasswordFormContainer.classList.remove('hidden');
+            showChangePasswordFormBtn.classList.add('hidden');
+            // Hide edit profile form if open
+            if (editProfileFormContainer) editProfileFormContainer.classList.add('hidden');
+            if (showEditProfileFormBtn) showEditProfileFormBtn.classList.remove('hidden');
+        });
+        cancelChangePasswordBtn.addEventListener('click', () => {
+            changePasswordFormContainer.classList.add('hidden');
+            showChangePasswordFormBtn.classList.remove('hidden');
+            changePasswordMessageDiv.textContent = '';
+            if(changePasswordForm) changePasswordForm.reset();
+        });
+    }
+
+    if (changePasswordForm) {
+        changePasswordForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            changePasswordMessageDiv.textContent = '';
+            const current_password = changePasswordForm.current_password.value;
+            const new_password = changePasswordForm.new_password.value;
+            const confirm_new_password = changePasswordForm.confirm_new_password.value;
+
+            if (new_password !== confirm_new_password) {
+                changePasswordMessageDiv.textContent = translate('account.passwordsDoNotMatch');
+                changePasswordMessageDiv.className = 'text-red-600';
+                return;
+            }
+
+            try {
+                await makeApiRequest('/api/user/change-password', 'POST', { current_password, new_password }, true);
+                changePasswordMessageDiv.textContent = translate('account.passwordUpdateSuccess');
+                changePasswordMessageDiv.className = 'text-green-600';
+                changePasswordForm.reset();
+                changePasswordFormContainer.classList.add('hidden');
+                showChangePasswordFormBtn.classList.remove('hidden');
+            } catch (error) {
+                changePasswordMessageDiv.textContent = error.message || translate('account.passwordUpdateError');
+                changePasswordMessageDiv.className = 'text-red-600';
+            }
+        });
+    }
+
+
+    // B2B Profile Edit Logic
+    if (showEditB2BProfileFormBtn && editB2BProfileFormContainer && cancelEditB2BProfileBtn) {
+        showEditB2BProfileFormBtn.addEventListener('click', () => {
+            editB2BProfileFormContainer.classList.remove('hidden');
+            showEditB2BProfileFormBtn.classList.add('hidden');
+             // Hide change password form if open
+            if (b2bChangePasswordFormContainer) b2bChangePasswordFormContainer.classList.add('hidden');
+            if (showB2BChangePasswordFormBtn) showB2BChangePasswordFormBtn.classList.remove('hidden');
+
+            const currentUser = getUser();
+            if (currentUser && currentUser.role === 'b2b') {
+                document.getElementById('edit-b2b-contact-name').value = currentUser.contact_name || '';
+                document.getElementById('edit-b2b-phone').value = currentUser.phone || '';
+                document.getElementById('edit-b2b-shipping-address').value = currentUser.shipping_address || '';
+            }
+        });
+        cancelEditB2BProfileBtn.addEventListener('click', () => {
+            editB2BProfileFormContainer.classList.add('hidden');
+            showEditB2BProfileFormBtn.classList.remove('hidden');
+            editB2BProfileMessageDiv.textContent = '';
+        });
+    }
+
+    if (editB2BProfileForm) {
+        editB2BProfileForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            editB2BProfileMessageDiv.textContent = '';
+            const updatedData = {
+                contact_name: editB2BProfileForm.contact_name.value,
+                phone: editB2BProfileForm.phone.value,
+                shipping_address: editB2BProfileForm.shipping_address.value,
+            };
+            try {
+                const response = await makeApiRequest('/api/user/profile', 'PUT', updatedData, true);
+                setUser(response.user);
+                editB2BProfileMessageDiv.textContent = translate('account.profileUpdateSuccess');
+                editB2BProfileMessageDiv.className = 'text-green-600';
+                displayLoggedInB2BView(response.user);
+                editB2BProfileFormContainer.classList.add('hidden');
+                showEditB2BProfileFormBtn.classList.remove('hidden');
+            } catch (error) {
+                editB2BProfileMessageDiv.textContent = error.message || translate('account.profileUpdateError');
+                editB2BProfileMessageDiv.className = 'text-red-600';
+            }
+        });
+    }
+    
+    // B2B Change Password Logic
+    if (showB2BChangePasswordFormBtn && b2bChangePasswordFormContainer && cancelB2BChangePasswordBtn) {
+        showB2BChangePasswordFormBtn.addEventListener('click', () => {
+            b2bChangePasswordFormContainer.classList.remove('hidden');
+            showB2BChangePasswordFormBtn.classList.add('hidden');
+            // Hide edit profile form if open
+            if (editB2BProfileFormContainer) editB2BProfileFormContainer.classList.add('hidden');
+            if (showEditB2BProfileFormBtn) showEditB2BProfileFormBtn.classList.remove('hidden');
+        });
+        cancelB2BChangePasswordBtn.addEventListener('click', () => {
+            b2bChangePasswordFormContainer.classList.add('hidden');
+            showB2BChangePasswordFormBtn.classList.remove('hidden');
+            b2bChangePasswordMessageDiv.textContent = '';
+            if(b2bChangePasswordForm) b2bChangePasswordForm.reset();
+        });
+    }
+
+    if (b2bChangePasswordForm) {
+        b2bChangePasswordForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            b2bChangePasswordMessageDiv.textContent = '';
+            const current_password = b2bChangePasswordForm.current_password.value;
+            const new_password = b2bChangePasswordForm.new_password.value;
+            const confirm_new_password = b2bChangePasswordForm.confirm_new_password.value;
+
+            if (new_password !== confirm_new_password) {
+                b2bChangePasswordMessageDiv.textContent = translate('account.passwordsDoNotMatch');
+                b2bChangePasswordMessageDiv.className = 'text-red-600';
+                return;
+            }
+
+            try {
+                await makeApiRequest('/api/user/change-password', 'POST', { current_password, new_password }, true);
+                b2bChangePasswordMessageDiv.textContent = translate('account.passwordUpdateSuccess');
+                b2bChangeMessageDiv.className = 'text-green-600';
+                b2bChangePasswordForm.reset();
+                b2bChangePasswordFormContainer.classList.add('hidden');
+                showB2BChangePasswordFormBtn.classList.remove('hidden');
+            } catch (error) {
+                b2bChangePasswordMessageDiv.textContent = error.message || translate('account.passwordUpdateError');
+                b2bChangePasswordMessageDiv.className = 'text-red-600';
+            }
+        });
+    }
+
+}
+
+// Expose functions to global scope if they are called from HTML attributes like onclick
+window.viewOrderDetail = viewOrderDetail;
+window.initAccountPage = initAccountPage; // Make sure it's callable after DOMContentLoaded
+
+// Update header based on login status (called from checkAuth and logout)
+function updateLoginStatusInHeader(isLoggedIn, user = null) {
+    const accountLink = document.querySelector('#header-placeholder a[href="compte.html"]');
+    const logoutLink = document.getElementById('header-logout-link'); // Assuming an ID for a dedicated logout link/button in header
+    const loginLink = document.getElementById('header-login-link'); // Assuming an ID for a dedicated login link in header
+    const userNameDisplay = document.getElementById('header-user-name'); // Assuming an element to display user name
+
+    if (accountLink) {
+        // The "Mon Compte" link is always visible, its behavior changes based on login status on compte.html itself.
+    }
+
+    // This is a conceptual update; actual header structure might vary.
+    // You might need to adjust selectors based on your header.html
+    if (isLoggedIn && user) {
+        if (userNameDisplay) {
+            userNameDisplay.textContent = user.name || user.contact_name || user.email;
+            userNameDisplay.classList.remove('hidden');
+        }
+        if (loginLink) loginLink.classList.add('hidden');
+        if (logoutLink) {
+             logoutLink.classList.remove('hidden');
+             logoutLink.onclick = (e) => { // Add click listener if it's a dynamic element
+                 e.preventDefault();
+                 removeToken();
+                 window.location.href = 'compte.html'; // or reload
+             };
+        }
+    } else {
+        if (userNameDisplay) {
+            userNameDisplay.textContent = '';
+            userNameDisplay.classList.add('hidden');
+        }
+        if (loginLink) loginLink.classList.remove('hidden');
+        if (logoutLink) logoutLink.classList.add('hidden');
+    }
 }
