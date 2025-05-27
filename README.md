@@ -145,31 +145,7 @@ maison-truvra-2/
             npm install -D tailwindcss postcss autoprefixer
             npx tailwindcss init
             ```
-        * Configure `tailwind.config.js` to include paths to your admin HTML files:
-            ```js
-            // tailwind.config.js
-            module.exports = {
-              content: [
-                "./admin/**/*.html",
-                "./website/admin/**/*.html", // If JS for admin is also in HTML
-                "./website/admin/js/**/*.js",
-              ],
-              theme: {
-                extend: {},
-              },
-              plugins: [],
-            }
-            ```
-        * Create a source CSS file (e.g., `admin/src/input.css`) that imports Tailwind and your custom styles:
-            ```css
-            /* admin/src/input.css */
-            @tailwind base;
-            @tailwind components;
-            @tailwind utilities;
 
-            /* Import your custom admin styles */
-            @import "../admin_styles.css"; /* Or move content of admin_styles.css here */
-            ```
         * Run the Tailwind CLI to build your CSS:
             ```bash
             npx tailwindcss -i ./admin/src/input.css -o ./admin/dist/output.css --watch
