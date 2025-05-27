@@ -1,20 +1,57 @@
-<aside class="admin-sidebar">
-    <div class="p-6">
-        <a href="admin_dashboard.html">
-            <img src="../image_6be700.png" alt="Maison Trüvra Logo" class="h-16 mx-auto mb-6" onerror="this.alt='Logo Maison Trüvra'; this.src='https://placehold.co/150x60/F5EEDE/7D6A4F?text=Maison+Trüvra';">
-        </a>
-    </div>
+<aside class="w-64 bg-brand-primary text-brand-light p-4 space-y-2 shadow-lg fixed h-full">
+    <h2 class="text-2xl font-serif mb-6 text-center text-brand-accent">Maison Trüvra</h2>
     <nav>
-        <ul id="admin-nav-list">
-            <li><a href="admin_dashboard.html" class="admin-nav-link" data-page-id="page-admin-dashboard">Tableau de Bord</a></li>
-            <li><a href="admin_manage_products.html" class="admin-nav-link" data-page-id="page-admin-manage-products">Gérer les Produits</a></li>
-            <li><a href="admin_manage_inventory.html" class="admin-nav-link" data-page-id="page-admin-manage-inventory">Gérer les Stocks</a></li>
-            <li><a href="admin_manage_users.html" class="admin-nav-link" data-page-id="page-admin-manage-users">Gérer les Utilisateurs</a></li>
-            <li><a href="admin_manage_orders.html" class="admin-nav-link" data-page-id="page-admin-manage-orders">Gérer les Commandes (B2C)</a></li>
-            <li><a href="admin_manage_invoices.html" class="admin-nav-link" data-page-id="page-admin-manage-invoices">Gérer les Factures (B2B)</a></li>
-            </ul>
+        <a href="admin_dashboard.html" class="block py-2.5 px-4 rounded transition duration-200 hover:bg-brand-secondary hover:text-white" data-i18n="admin.sidebar.dashboard">
+            <i class="fas fa-tachometer-alt mr-2"></i>Tableau de Bord
+        </a>
+        <a href="admin_manage_products.html" class="block py-2.5 px-4 rounded transition duration-200 hover:bg-brand-secondary hover:text-white" data-i18n="admin.sidebar.products">
+            <i class="fas fa-box-open mr-2"></i>Produits
+        </a>
+        <a href="admin_manage_categories.html" class="block py-2.5 px-4 rounded transition duration-200 hover:bg-brand-secondary hover:text-white" data-i18n="admin.sidebar.categories">
+            <i class="fas fa-sitemap mr-2"></i>Catégories
+        </a>
+        <a href="admin_manage_inventory.html" class="block py-2.5 px-4 rounded transition duration-200 hover:bg-brand-secondary hover:text-white" data-i18n="admin.sidebar.inventory">
+            <i class="fas fa-pallet mr-2"></i>Inventaire
+        </a>
+        <a href="admin_manage_orders.html" class="block py-2.5 px-4 rounded transition duration-200 hover:bg-brand-secondary hover:text-white" data-i18n="admin.sidebar.ordersB2C">
+            <i class="fas fa-shopping-basket mr-2"></i>Commandes (B2C)
+        </a>
+        <a href="admin_manage_invoices_b2b.html" class="block py-2.5 px-4 rounded transition duration-200 hover:bg-brand-secondary hover:text-white" data-i18n="admin.sidebar.invoicesB2B">
+            <i class="fas fa-file-invoice-dollar mr-2"></i>Factures (B2B)
+        </a>
+        <a href="admin_manage_users.html" class="block py-2.5 px-4 rounded transition duration-200 hover:bg-brand-secondary hover:text-white" data-i18n="admin.sidebar.users">
+            <i class="fas fa-users mr-2"></i>Utilisateurs
+        </a>
+        <a href="admin_manage_reviews.html" class="block py-2.5 px-4 rounded transition duration-200 hover:bg-brand-secondary hover:text-white" data-i18n="admin.sidebar.reviews">
+            <i class="fas fa-comments mr-2"></i>Avis Produits
+        </a>
+        <div class="pt-4 mt-4 border-t border-brand-secondary">
+            <a href="#" id="admin-logout-button" class="block py-2.5 px-4 rounded transition duration-200 text-red-300 hover:bg-red-500 hover:text-white" data-i18n="admin.sidebar.logout">
+                <i class="fas fa-sign-out-alt mr-2"></i>Déconnexion
+            </a>
+        </div>
     </nav>
-    <div class="p-6 mt-auto">
-        <button id="admin-logout-button" class="btn-admin-secondary w-full">Déconnexion</button>
-    </div>
 </aside>
+<script>
+    // Add active class to current page link (simple version)
+    document.addEventListener('DOMContentLoaded', function() {
+        const currentPath = window.location.pathname.split("/").pop();
+        const navLinks = document.querySelectorAll('aside nav a');
+        navLinks.forEach(link => {
+            if (link.getAttribute('href') === currentPath) {
+                link.classList.add('bg-brand-accent', 'text-brand-primary', 'font-semibold');
+                link.classList.remove('hover:bg-brand-secondary', 'hover:text-white');
+            }
+        });
+
+        const adminLogoutButton = document.getElementById('admin-logout-button');
+        if (adminLogoutButton) {
+            adminLogoutButton.addEventListener('click', function(e) {
+                e.preventDefault();
+                localStorage.removeItem('adminAuthToken');
+                localStorage.removeItem('adminUser'); // or whatever you use for admin session
+                window.location.href = 'admin_login.html';
+            });
+        }
+    });
+</script>
