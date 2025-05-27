@@ -5,12 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gérer les Factures (B2B) - Admin Maison Trüvra</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="admin_styles.css">
-</head>
-<body id="page-admin-manage-invoices" class="bg-brand-cream text-brand-earth-brown font-inter"><!DOCTYPE html>
+    <link rel="preconnect" href="https://fonts.googleapis.com"><!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
@@ -42,47 +37,85 @@
                     </div>
                 </div>
 
-                <div id="upload-invoice-form-section" class="admin-card p-6 mb-8" style="display:none;">
+                <div id="create-invoice-form-section" class="admin-card p-6 mb-8" style="display:none;">
                     <h2 class="text-xl font-serif text-brand-near-black mb-6">
-                        <span data-translate-key="Televerser_Nouvelle_Facture">Téléverser une Nouvelle Facture pour</span>
-                        <span id="selected-b2b-user-name-invoice" class="font-bold"></span>
+                        Créer une Nouvelle Facture pour <span id="selected-b2b-user-name-invoice" class="font-bold"></span>
                     </h2>
-                    <form id="admin-upload-invoice-form" class="space-y-4">
-                        <input type="hidden" id="invoice-user-id-hidden" name="user_id">
+                    <form id="admin-create-invoice-form" class="space-y-4">
+                        <input type="hidden" id="invoice-user-id-hidden" name="user_id_for_creation">
 
-                        <div>
-                            <label for="invoice-number" class="form-label-admin"><span data-translate-key="Numero_Facture">Numéro de Facture</span> <span class="text-red-500">*</span></label>
-                            <input type="text" id="invoice-number" name="invoice_number" class="form-input-admin" required>
-                        </div>
-                        <div>
-                            <label for="invoice-date" class="form-label-admin"><span data-translate-key="Date_Facture">Date de Facture</span> <span class="text-red-500">*</span></label>
-                            <input type="date" id="invoice-date" name="invoice_date" class="form-input-admin" required>
-                        </div>
-                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <h3 class="text-lg font-semibold border-b pb-2 mb-3">Informations Facture</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div>
-                                <label for="invoice-total-ht" class="form-label-admin"><span data-translate-key="Montant_HT">Montant Total HT (€)</span> <span class="text-red-500">*</span></label>
-                                <input type="number" id="invoice-total-ht" name="total_amount_ht" step="0.01" class="form-input-admin" required>
+                                <label for="create-invoice-number" class="form-label-admin">Numéro de Facture <span class="text-red-500">*</span></label>
+                                <input type="text" id="create-invoice-number" name="invoice_number_create" class="form-input-admin" required>
                             </div>
                             <div>
-                                <label for="invoice-total-ttc" class="form-label-admin"><span data-translate-key="Montant_TTC">Montant Total TTC (€)</span> <span class="text-red-500">*</span></label>
-                                <input type="number" id="invoice-total-ttc" name="total_amount_ttc" step="0.01" class="form-input-admin" required>
+                                <label for="create-invoice-date" class="form-label-admin">Date de Facture <span class="text-red-500">*</span></label>
+                                <input type="date" id="create-invoice-date" name="invoice_date_create" class="form-input-admin" required>
+                            </div>
+                            <div>
+                                <label for="create-invoice-due-date" class="form-label-admin">Date d'Échéance <span class="text-red-500">*</span></label>
+                                <input type="date" id="create-invoice-due-date" name="invoice_due_date_create" class="form-input-admin" required>
                             </div>
                         </div>
-                        <div>
-                            <label for="invoice-discount" class="form-label-admin"><span data-translate-key="Remise_Pourcentage">Remise (%)</span></label>
-                            <input type="number" id="invoice-discount" name="discount_percentage" step="0.01" class="form-input-admin" placeholder="Ex: 5 pour 5%" value="0">
+
+                        <h3 class="text-lg font-semibold border-b pb-2 mt-4 mb-3">Client Professionnel</h3>
+                         <div>
+                            <label for="create-client-company-name" class="form-label-admin">Nom Entreprise Client</label>
+                            <input type="text" id="create-client-company-name" name="client_company_name" class="form-input-admin" readonly>
                         </div>
                         <div>
-                            <label for="invoice-file" class="form-label-admin"><span data-translate-key="Fichier_PDF_Facture">Fichier PDF de la Facture</span> <span class="text-red-500">*</span></label>
-                            <input type="file" id="invoice-file" name="invoice_file" class="form-input-admin" accept=".pdf" required>
+                            <label for="create-client-contact-person" class="form-label-admin">Personne de Contact</label>
+                            <input type="text" id="create-client-contact-person" name="client_contact_person" class="form-input-admin" readonly>
                         </div>
-                        <div class="flex justify-end">
-                            <button type="submit" class="btn-admin-primary" data-translate-key="Televerser_Facture">Téléverser la Facture</button>
+                         <div>
+                            <label for="create-client-address-lines" class="form-label-admin">Adresse Client (plusieurs lignes si besoin)</label>
+                            <textarea id="create-client-address-lines" name="client_address_lines" class="form-textarea-admin" rows="2" placeholder="Ex: 1 Rue Principale&#10;75001 Paris"></textarea>
+                        </div>
+                         <div>
+                            <label for="create-client-vat-number" class="form-label-admin">N° TVA Client (optionnel)</label>
+                            <input type="text" id="create-client-vat-number" name="client_vat_number" class="form-input-admin">
+                        </div>
+
+
+                        <h3 class="text-lg font-semibold border-b pb-2 mt-4 mb-3">Articles de la Facture</h3>
+                        <div id="invoice-line-items-container" class="space-y-3">
+                            </div>
+                        <button type="button" id="add-invoice-item-button" class="btn-admin-secondary text-xs">Ajouter un Article</button>
+
+                        <h3 class="text-lg font-semibold border-b pb-2 mt-4 mb-3">Totaux et Taxes</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label for="create-invoice-discount" class="form-label-admin">Remise Globale (%)</label>
+                                <input type="number" id="create-invoice-discount" name="discount_percentage_create" step="0.01" class="form-input-admin" placeholder="Ex: 5" value="0">
+                            </div>
+                            <div>
+                                <label for="create-invoice-vat-rate" class="form-label-admin">Taux de TVA (%)</label>
+                                <input type="number" id="create-invoice-vat-rate" name="vat_rate_percent_create" step="0.01" class="form-input-admin" placeholder="Ex: 20" value="20">
+                            </div>
+                        </div>
+                        <div class="mt-4 p-3 bg-brand-cream rounded-md">
+                            <p><strong>Total HT (avant remise):</strong> <span id="preview-total-ht-before-discount">0.00</span> €</p>
+                            <p><strong>Montant Remise:</strong> <span id="preview-discount-amount">0.00</span> €</p>
+                            <p><strong>Total HT (après remise):</strong> <span id="preview-total-ht-after-discount">0.00</span> €</p>
+                            <p><strong>Montant TVA:</strong> <span id="preview-vat-amount">0.00</span> €</p>
+                            <p class="font-bold text-lg"><strong>Total TTC:</strong> <span id="preview-total-ttc">0.00</span> €</p>
+                        </div>
+
+
+                        <div class="flex justify-end space-x-3 pt-5">
+                            <button type="submit" class="btn-admin-primary">Générer et Enregistrer Facture</button>
                         </div>
                     </form>
+                    <div id="invoice-preview-area" class="mt-6" style="display:none;">
+                        <h4 class="text-md font-semibold">Aperçu PDF:</h4>
+                        <iframe id="pdf-preview-iframe" style="width:100%; height:500px; border:1px solid #ccc;"></iframe>
+                        <a id="generated-pdf-download-link" href="#" target="_blank" class="btn-admin-gold mt-2 inline-block" style="display:none;">Voir/Télécharger PDF Généré</a>
+                    </div>
                 </div>
 
-                <div id="user-invoices-list-section" class="admin-card overflow-x-auto" style="display:none;">
+                <div id="user-invoices-list-section" class="admin-card overflow-x-auto mt-8" style="display:none;">
                     <h2 class="text-xl font-serif text-brand-near-black p-6">
                         <span data-translate-key="Factures_Pour_Utilisateur_Selectionne">Factures pour</span>
                         <span id="selected-b2b-user-name-list" class="font-bold"></span>
@@ -98,8 +131,7 @@
                                 <th scope="col" data-translate-key="Actions">Actions</th>
                             </tr>
                         </thead>
-                        <tbody id="admin-invoices-table-body">
-                            </tbody>
+                        <tbody id="admin-invoices-table-body"></tbody>
                     </table>
                 </div>
             </section>
@@ -111,6 +143,7 @@
     <script src="js/admin_ui.js"></script>
     <script src="js/admin_api.js"></script>
     <script src="js/admin_auth.js"></script>
-    <script src="js/admin_invoices.js"></script> <script src="js/admin_main.js"></script>
+    <script src="js/admin_invoices.js"></script>
+    <script src="js/admin_main.js"></script>
 </body>
 </html>
