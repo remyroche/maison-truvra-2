@@ -1,20 +1,163 @@
 # backend/admin_api/routes.py
-from flask import Blueprint, request, jsonify, current_app, url_for, g
-from ..database import get_db, record_stock_movement
-from ..auth.routes import admin_required
+from flask import Blueprint, request, jsonify, current_app, g, url_for # Added g
+from werkzeug.utils import secure_filename # For file uploads
+import os # For path operations
+import datetime # For date handling
 import sqlite3
 import json
-import os
-import datetime
-
+from ..database import get_db, record_stock_movement
+from ..auth.routes import admin_required
 from ..services.asset_service import (
-    generate_product_passport_html_content,
-    save_product_passport_html,
-    generate_qr_code_for_passport,
-    generate_product_label_image
+    generate_product_passport_html_content, save_product_passport_html,
+    generate_qr_code_for_passport, generate_product_label_image
 )
 
-admin_api_bp = Blueprint('admin_api_bp_routes', __name__) # Ensure this name is unique
+admin_api_bp = Blueprint('admin_api_bp_routes', __name__) # KEEP THIS NAME CONSISTENT
+
+# ... (existing product, inventory, user routes from previous steps) ...
+
+ALLOWED_EXTENSIONS = {'pdf'}
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@admin_api_bp.route('/invoices/upload', methods=['POST'])
+@admin_required
+def upload_invoice():
+    admin_uploader_id = getattr(g, 'admin_user_id', None)
+    if 'invoice_file' not in request.files:
+        return jsonify({"success": False, "message": "Aucun fichier de facture sélectionné."}), 400
+
+    file = request.files['invoice_file']
+    if file.filename == '':
+        return jsonify({"success": False, "message": "Aucun fichier sélectionné."}), 400
+
+    if file and allowed_file(file.filename):
+        b2b_user_id = request.form.get('user_id')
+        invoice_number = request.form.get('invoice_number')
+        invoice_date_str = request.form.get('invoice_date')
+        total_amount_ht_str = request.form.get('total_amount_ht')
+        total_amount_ttc_str = request.form.get('total_amount_ttc')
+        discount_percentage_str = request.form.get('discount_percentage', '0')
+
+        if not all([b2b_user_id, invoice_number, invoice_date_str, total_amount_ht_str, total_amount_ttc_str]):
+            return jsonify({"success": False, "message": "Données de facture manquantes (user_id, numéro, date, montants)."}), 400
+
+        try:
+            invoice_date = datetime.datetime.strptime(invoice_date_str, '%Y-%m-%d').date()
+            total_amount_ht = float(total_amount_ht_str)
+            total_amount_ttc = float(total_amount_ttc_str)
+            discount_percentage = float(discount_percentage_str)
+        except ValueError:
+            return jsonify({"success": False, "message": "Format de date ou de montant invalide."}), 400
+
+        # Sanitize filename and ensure uniqueness if needed, or use invoice_number
+        # Using invoice_number as filename for simplicity, assuming it's unique.
+        filename = secure_filename(f"{invoice_number}.pdf")
+        upload_folder = current_app.config['INVOICES_UPLOAD_DIR']
+        if not os.path.exists(upload_folder):
+            os.makedirs(upload_folder)
+        file_save_path = os.path.join(upload_folder, filename)
+
+        # Check if file with this invoice_number already exists in DB to prevent overwriting related record
+        # if an admin uploads twice with same invoice number but different file.
+        db_check = get_db()
+        cursor_check = db_check.cursor()
+        cursor_check.execute("SELECT invoice_id FROM invoices WHERE invoice_number = ?", (invoice_number,))
+        if cursor_check.fetchone():
+            db_check.close()
+            return jsonify({"success": False, "message": f"Une facture avec le numéro '{invoice_number}' existe déjà."}), 409
+        db_check.close()
+
+        file.save(file_save_path)
+
+        # Store invoice metadata in database
+        db = None
+        try:
+            db = get_db()
+            cursor = db.cursor()
+            cursor.execute(
+                """INSERT INTO invoices (user_id, invoice_number, invoice_date, total_amount_ht, total_amount_ttc, discount_percentage, file_path, admin_uploader_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (b2b_user_id, invoice_number, invoice_date, total_amount_ht, total_amount_ttc, discount_percentage, filename, admin_uploader_id)
+            )
+            # Here you would also parse the line items from the form if the admin is inputting them manually
+            # For now, assuming the PDF is generated externally and we only store its metadata and file.
+            # If line items come from form:
+            # items_data_json = request.form.get('items') # Expecting JSON string like '[{"name":"ProdA", "qty":2, "price_ht":100}, ...]'
+            # if items_data_json:
+            #     items = json.loads(items_data_json)
+            #     for item in items:
+            #          cursor.execute("INSERT INTO invoice_items (invoice_id, product_name, quantity, unit_price_ht, total_price_ht) VALUES (?,?,?,?,?)",
+            #                         (invoice_id, item['name'], item['qty'], item['price_ht'], item['qty']*item['price_ht']))
+            db.commit()
+            invoice_id = cursor.lastrowid
+            current_app.logger.info(f"Facture {invoice_number} (ID: {invoice_id}) téléversée pour user {b2b_user_id} par admin {admin_uploader_id}")
+            return jsonify({"success": True, "message": "Facture téléversée avec succès.", "invoice_id": invoice_id, "file_path": filename}), 201
+        except sqlite3.IntegrityError as e: # Should be caught by pre-check, but good to have
+            if db: db.rollback()
+            current_app.logger.error(f"Erreur d'intégrité DB lors de l'upload de facture: {e}", exc_info=True)
+            # Clean up saved file if DB insert fails
+            if os.path.exists(file_save_path): os.remove(file_save_path)
+            return jsonify({"success": False, "message": f"Erreur de base de données (potentiel duplicata): {e}"}), 409
+        except Exception as e:
+            if db: db.rollback()
+            current_app.logger.error(f"Erreur serveur lors de l'upload de facture: {e}", exc_info=True)
+            if os.path.exists(file_save_path): os.remove(file_save_path)
+            return jsonify({"success": False, "message": "Erreur serveur interne."}), 500
+        finally:
+            if db: db.close()
+    else:
+        return jsonify({"success": False, "message": "Type de fichier non autorisé. Seuls les PDF sont acceptés."}), 400
+
+# Add GET and DELETE for invoices in admin if needed (similar to other admin routes)
+@admin_api_bp.route('/users/<int:user_id>/invoices', methods=['GET'])
+@admin_required
+def get_user_invoices_admin(user_id):
+    db = None
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT invoice_id, invoice_number, invoice_date, total_amount_ttc, file_path, uploaded_at FROM invoices WHERE user_id = ? ORDER BY invoice_date DESC", (user_id,))
+        invoices = [dict(row) for row in cursor.fetchall()]
+        return jsonify({"success": True, "invoices": invoices}), 200
+    except Exception as e:
+        current_app.logger.error(f"Erreur listage factures pour user {user_id} (admin): {e}")
+        return jsonify({"success": False, "message": "Erreur serveur."}), 500
+    finally:
+        if db: db.close()
+
+@admin_api_bp.route('/invoices/<int:invoice_id>', methods=['DELETE'])
+@admin_required
+def delete_invoice_admin(invoice_id):
+    db = None
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT file_path FROM invoices WHERE invoice_id = ?", (invoice_id,))
+        invoice_record = cursor.fetchone()
+        if not invoice_record:
+            return jsonify({"success": False, "message": "Facture non trouvée."}), 404
+
+        cursor.execute("DELETE FROM invoices WHERE invoice_id = ?", (invoice_id,))
+        # Also delete invoice_items associated if any
+        cursor.execute("DELETE FROM invoice_items WHERE invoice_id = ?", (invoice_id,))
+        db.commit()
+
+        # Delete the actual file
+        file_to_delete = os.path.join(current_app.config['INVOICES_UPLOAD_DIR'], os.path.basename(invoice_record['file_path']))
+        if os.path.exists(file_to_delete):
+            os.remove(file_to_delete)
+            current_app.logger.info(f"Fichier facture {invoice_record['file_path']} supprimé.")
+
+        current_app.logger.info(f"Facture ID {invoice_id} supprimée par admin.")
+        return jsonify({"success": True, "message": "Facture supprimée avec succès."}), 200
+    except Exception as e:
+        if db: db.rollback()
+        current_app.logger.error(f"Erreur suppression facture {invoice_id} (admin): {e}")
+        return jsonify({"success": False, "message": "Erreur serveur."}), 500
+    finally:
+        if db: db.close()
+
 
 @admin_api_bp.route('/products', methods=['POST'])
 @admin_required
