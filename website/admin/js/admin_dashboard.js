@@ -13,3 +13,25 @@ async function initializeAdminDashboard() {
             if (response.notifications && response.notifications.length > 0) {
                 notificationsList.innerHTML = response.notifications.map(n =>
                     `<li class="<span class="math-inline">\{n\.read ? 'text\-brand\-warm\-taupe' \: 'text\-brand\-near\-black font\-semibold'\}"\>
+
+
+
+                    ({new Date(n.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}) - ${n.message}
+                    </li>`
+                    ).join('');
+                    } else {
+                    notificationsList.innerHTML = '<li class="text-brand-warm-taupe italic">Aucune nouvelle notification.</li>';
+                    }
+                    } else {
+                    showAdminToast(response.message || "Erreur chargement stats dashboard", "error");
+                    }
+                    } catch (error) {
+                    console.error("Failed to load dashboard stats:", error);
+                    showAdminToast("Impossible de charger les données du tableau de bord.", "error");
+                    }
+                    }
+
+// Ensure this is called if admin_main.js loads it or directly:
+// document.addEventListener('DOMContentLoaded', initializeAdminDashboard);
+```
+* **Note**: Ensure `admin_dashboard.js` is correctly loaded in `admin_dashboard.html` and `admin_main.js` calls `initializeAdminDashboard`.
