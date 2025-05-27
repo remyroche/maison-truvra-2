@@ -9,9 +9,26 @@ async function initializeAdminInvoiceManagement() {
     const uploadFormSection = document.getElementById('upload-invoice-form-section');
     const invoiceListSection = document.getElementById('user-invoices-list-section');
     const uploadInvoiceForm = document.getElementById('admin-upload-invoice-form');
+    const selectedUserNameSpanInvoice = document.getElementById('selected-b2b-user-name-invoice');// website/admin/js/admin_invoices.js
+
+document.addEventListener('DOMContentLoaded', () => {
+    // This function will be called by admin_main.js if on the correct page
+    // (Assuming initializeAdminInvoiceManagement is called from admin_main.js)
+});
+
+async function initializeAdminInvoiceManagement() {
+    const userSelectDropdown = document.getElementById('select-b2b-user-for-invoice');
+    const uploadFormSection = document.getElementById('upload-invoice-form-section');
+    const invoiceListSection = document.getElementById('user-invoices-list-section');
+    const uploadInvoiceForm = document.getElementById('admin-upload-invoice-form');
     const selectedUserNameSpanInvoice = document.getElementById('selected-b2b-user-name-invoice');
     const selectedUserNameSpanList = document.getElementById('selected-b2b-user-name-list');
-    const hiddenUserIdField = document.getElementById('invoice-user-id-hidden');
+    const hiddenUserIdField = document.getElementById('invoice-user-id-hidden'); // Corrected ID
+
+    if (!userSelectDropdown || !uploadInvoiceForm || !invoiceListSection) {
+        console.error("One or more critical elements for invoice management are missing.");
+        return;
+    }
 
     await populateB2BUserDropdown(userSelectDropdown);
 
@@ -32,20 +49,19 @@ async function initializeAdminInvoiceManagement() {
             if (invoiceListSection) invoiceListSection.style.display = 'none';
             if (selectedUserNameSpanInvoice) selectedUserNameSpanInvoice.textContent = '';
             if (selectedUserNameSpanList) selectedUserNameSpanList.textContent = '';
-            document.getElementById('admin-invoices-table-body').innerHTML = '<tr><td colspan="6" class="text-center py-3">Sélectionnez un utilisateur pour voir ses factures.</td></tr>';
+            const tableBody = document.getElementById('admin-invoices-table-body');
+            if(tableBody) tableBody.innerHTML = '<tr><td colspan="6" class="text-center py-3">Sélectionnez un utilisateur pour voir ses factures.</td></tr>';
         }
     });
 
-    if (uploadInvoiceForm) {
-        uploadInvoiceForm.addEventListener('submit', handleInvoiceUpload);
-    }
+    uploadInvoiceForm.addEventListener('submit', handleInvoiceUpload);
 }
 
 async function populateB2BUserDropdown(selectElement) {
     if (!selectElement) return;
     try {
         const users = await adminApiRequest('/users'); // Assuming this endpoint lists all users
-        selectElement.innerHTML = '<option value="">-- Sélectionner un Professionnel --</option>'; // Default empty option
+        selectElement.innerHTML = '<option value="">-- Sélectionner un Professionnel --</option>';
         users.filter(user => user.user_type === 'b2b').forEach(user => {
             const option = document.createElement('option');
             option.value = user.id;
@@ -72,14 +88,14 @@ async function loadInvoicesForUser(userId) {
             }
             let rowsHtml = '';
             data.invoices.forEach(invoice => {
-                const invoiceDate = new Date(invoice.invoice_date).toLocaleDateString('fr-CA'); // YYYY-MM-DD for consistency
+                const invoiceDate = new Date(invoice.invoice_date).toLocaleDateString('fr-CA');
                 const uploadedDate = new Date(invoice.uploaded_at).toLocaleString('fr-FR');
-                // Construct download URL. Assuming INVOICES_UPLOAD_DIR is served under /static/invoices_uploads/
-                // The backend download route for professionals is different, admin might just link to static file or have its own download route.
-                // For simplicity here, linking to where the professional would download it (if that route is accessible by admin or if it's just a static link)
-                // A dedicated admin download link might be better for tracking/permissions.
-                // The file_path from DB is just the filename.pdf
-                const downloadUrl = `/static_assets/invoices_uploads/${invoice.file_path}`;
+                // Construct download URL using the professional-facing download route for consistency,
+                // or use a direct static link if INVOICES_UPLOAD_DIR is served publicly (less secure).
+                // The backend /api/professional/invoices/:id/download handles auth for the professional.
+                // For admin, direct link to static could be an option if permissions are handled by static server config.
+                // For now, let's assume the file_path is just the filename.
+                const staticDownloadUrl = `${window.location.origin}/static_assets/invoices_uploads/${invoice.file_path}`;
 
 
                 rowsHtml += `
@@ -87,7 +103,7 @@ async function loadInvoicesForUser(userId) {
                         <td class="px-4 py-2 text-xs">${invoice.invoice_number}</td>
                         <td class="px-4 py-2 text-xs">${invoiceDate}</td>
                         <td class="px-4 py-2 text-xs text-right">${parseFloat(invoice.total_amount_ttc).toFixed(2)} €</td>
-                        <td class="px-4 py-2 text-xs"><a href="${downloadUrl}" target="_blank" class="text-brand-classic-gold hover:underline">${invoice.file_path}</a></td>
+                        <td class="px-4 py-2 text-xs"><a href="${staticDownloadUrl}" target="_blank" class="text-brand-classic-gold hover:underline">${invoice.file_path}</a></td>
                         <td class="px-4 py-2 text-xs">${uploadedDate}</td>
                         <td class="px-4 py-2 text-xs space-x-2">
                             <button onclick="confirmDeleteInvoice(${invoice.invoice_id}, '${invoice.invoice_number}')" class="btn-admin-danger p-1 text-xs">Supprimer</button>
@@ -108,25 +124,44 @@ async function loadInvoicesForUser(userId) {
 async function handleInvoiceUpload(event) {
     event.preventDefault();
     const form = event.target;
-    const userId = form.querySelector('#invoice-user-id-hidden').value;
+    const userId = form.querySelector('#invoice-user-id-hidden').value; // Corrected ID used
     if (!userId) {
         showAdminToast("Veuillez d'abord sélectionner un client professionnel.", "error");
         return;
     }
 
     const formData = new FormData(form);
-    // user_id is already in hidden field, FormData will pick it up.
+    // The 'user_id' is already part of 'formData' because of the hidden input field.
+
+    // Optional: Add line items if your form includes them.
+    // For now, this assumes the PDF is complete and only metadata is entered in the form.
+    // If you were to add line items to the form:
+    // const items = [];
+    // document.querySelectorAll('.invoice-item-row').forEach(row => {
+    //     items.push({
+    //         name: row.querySelector('.item-name').value,
+    //         quantity: row.querySelector('.item-quantity').value,
+    //         unit_price_ht: row.querySelector('.item-price').value,
+    //     });
+    // });
+    // formData.append('items_data', JSON.stringify(items)); // Send items as JSON string
 
     showAdminToast("Téléversement de la facture en cours...", "info");
     try {
-        // adminApiRequest needs to be able to handle FormData
-        const result = await adminApiRequest('/invoices/upload', 'POST', formData); // Pass FormData directly
+        // adminApiRequest is already set up to handle FormData
+        const result = await adminApiRequest('/invoices/upload', 'POST', formData);
 
         if (result.success) {
             showAdminToast(result.message || "Facture téléversée avec succès!", "success");
-            form.reset(); // Reset form fields
-            //form.querySelector('#invoice-file').value = null; // Clear file input specifically
-            await loadInvoicesForUser(userId); // Refresh the list
+            form.reset(); // Reset form fields, including the file input
+            // Re-select the current user in the dropdown to refresh their invoice list
+            const userSelectDropdown = document.getElementById('select-b2b-user-for-invoice');
+            if (userSelectDropdown.value === userId) { // If the same user is still selected
+                await loadInvoicesForUser(userId);
+            } else { // If user changed, or to be safe, reset selection
+                userSelectDropdown.value = userId; // This should trigger the change event again if not already selected
+                // If change event not triggered, manually call: await loadInvoicesForUser(userId);
+            }
         } else {
             showAdminToast(result.message || "Échec du téléversement de la facture.", "error");
         }
