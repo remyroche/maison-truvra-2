@@ -1,183 +1,213 @@
 # backend/orders/routes.py
-from flask import Blueprint, request, jsonify, current_app, g
-from ..database import get_db, record_stock_movement
-from ..utils import is_valid_email
-from ..auth.routes import admin_required # Assuming you might need admin_required for some order ops later
-import jwt # For decoding token if user_id comes from token
+from flask import Blueprint, request, jsonify, current_app
+import sqlite3
+import stripe # Assuming Stripe will be used eventually
+import datetime
+from ..database import get_db_connection, record_stock_movement # Import record_stock_movement
+from ..utils import user_jwt_required, send_email_alert # For user authentication and email
+from ..audit_log_service import AuditLogService
 
-orders_bp = Blueprint('orders_bp', __name__, url_prefix='/api/orders')
+orders_bp = Blueprint('orders', __name__, url_prefix='/api/orders')
+audit_logger = AuditLogService()
 
-@orders_bp.route('/checkout', methods=['POST'])
-def checkout():
+# Configure Stripe (from app config) - payment is out of scope for this update
+# stripe.api_key = current_app.config['STRIPE_SECRET_KEY']
+
+
+@orders_bp.route('/create', methods=['POST'])
+@user_jwt_required # Protect this route, get current_user_id
+def create_order(current_user_id, current_user_role): # current_user_id from decorator
     data = request.get_json()
-    current_app.logger.info(f"Données de checkout reçues : {data}")
-
-    customer_email = data.get('customerEmail')
-    shipping_address_data = data.get('shippingAddress') 
-    cart_items = data.get('cartItems')
+    # Required data: items, shipping_address_id, billing_address_id, (payment_intent_id if Stripe)
+    # items: [{"product_id": int, "variant_id": int (optional), "quantity": int}]
     
-    # Determine user_id: from payload if explicitly sent, or from JWT if available
-    user_id = data.get('userId', None)
-    if not user_id and hasattr(g, 'current_user_id') and g.current_user_id:
-        user_id = g.current_user_id
-    elif not user_id and request.headers.get('Authorization'): # Fallback: check token directly if g not set
-        auth_header = request.headers.get('Authorization')
-        if auth_header and auth_header.startswith('Bearer '):
-            token = auth_header.split(" ")[1]
-            try:
-                payload = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
-                user_id = payload.get('user_id')
-            except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
-                user_id = None # Token invalid or expired, proceed as guest or require login
+    items = data.get('items')
+    shipping_address_id = data.get('shipping_address_id')
+    billing_address_id = data.get('billing_address_id')
+    # payment_method_id = data.get('payment_method_id') # For Stripe
 
-    # --- Validations d'entrée ---
-    if not customer_email or not is_valid_email(customer_email):
-        return jsonify({"success": False, "message": "Adresse e-mail du client invalide ou manquante."}), 400
-    if not shipping_address_data or not all(k in shipping_address_data for k in ['address', 'zipcode', 'city', 'country', 'firstname', 'lastname']):
-        return jsonify({"success": False, "message": "Adresse de livraison incomplète."}), 400
-    if not cart_items or not isinstance(cart_items, list) or len(cart_items) == 0:
-        return jsonify({"success": False, "message": "Panier vide ou invalide."}), 400
+    if not items or not shipping_address_id or not billing_address_id: # or not payment_method_id:
+        return jsonify({"message": "Missing required order information (items, addresses)"}), 400
 
-    shipping_address_full = (
-        f"{shipping_address_data.get('firstname', '')} {shipping_address_data.get('lastname', '')}\n"
-        f"{shipping_address_data['address']}\n"
-        f"{shipping_address_data.get('apartment', '')}\n"
-        f"{shipping_address_data['zipcode']} {shipping_address_data['city']}\n"
-        f"{shipping_address_data['country']}"
-    ).replace('\n\n','\n').strip()
-
-    db = None # Initialize db to None
+    conn = get_db_connection()
+    conn.execute("BEGIN") # Start transaction
     try:
-        db = get_db()
-        cursor = db.cursor()
-        
-        total_amount_calculated = 0
-        validated_items_for_order = []
+        cursor = conn.cursor()
+        total_amount = 0
+        order_items_details = [] # To store details for insertion and email
 
-        for item_from_cart in cart_items:
-            product_id_cart = item_from_cart.get('id')
-            quantity_ordered = int(item_from_cart.get('quantity', 0))
-            price_from_cart = float(item_from_cart.get('price', 0))
-            variant_option_id_cart = item_from_cart.get('variant_option_id', None) 
+        # 1. Validate items and calculate total_amount, check stock
+        for item_req in items:
+            product_id = item_req.get('product_id')
+            variant_id = item_req.get('variant_id') # Can be None for simple products
+            quantity = item_req.get('quantity')
+
+            if not product_id or not quantity or quantity <= 0:
+                raise ValueError("Invalid item data (product_id, quantity).")
+
+            if variant_id:
+                cursor.execute("""
+                    SELECT p.name_fr, p.name_en, pwo.price, pwo.stock_quantity, pwo.weight_grams 
+                    FROM product_weight_options pwo
+                    JOIN products p ON pwo.product_id = p.id
+                    WHERE pwo.id = ? AND pwo.product_id = ?
+                """, (variant_id, product_id))
+                db_item = cursor.fetchone()
+                if not db_item:
+                    raise ValueError(f"Variant ID {variant_id} for product ID {product_id} not found.")
+                item_name = f"{db_item['name_fr']} ({db_item['weight_grams']}g)"
+            else: # Simple product
+                cursor.execute("SELECT name_fr, name_en, base_price, stock_quantity FROM products WHERE id = ?", (product_id,))
+                db_item = cursor.fetchone()
+                if not db_item:
+                    raise ValueError(f"Product ID {product_id} not found.")
+                item_name = db_item['name_fr']
             
-            if quantity_ordered <= 0:
-                raise ValueError(f"Quantité invalide pour {item_from_cart.get('name')}.")
+            price_at_purchase = db_item['price'] if variant_id else db_item['base_price']
+            if price_at_purchase is None: # Should not happen if data is clean
+                 raise ValueError(f"Price not found for product/variant ID {product_id}/{variant_id}.")
 
-            actual_price_db = 0
-            current_stock_db = 0
+            current_stock = db_item['stock_quantity'] if db_item['stock_quantity'] is not None else 0
+            if current_stock < quantity:
+                raise ValueError(f"Not enough stock for {item_name}. Available: {current_stock}, Requested: {quantity}")
 
-            if variant_option_id_cart:
-                cursor.execute("SELECT price, stock_quantity FROM product_weight_options WHERE option_id = ? AND product_id = ?", 
-                               (variant_option_id_cart, product_id_cart))
-                variant_info = cursor.fetchone()
-                if not variant_info:
-                    raise ValueError(f"Option de produit {item_from_cart.get('name')} (Variante ID: {variant_option_id_cart}) non trouvée.")
-                actual_price_db = variant_info['price']
-                current_stock_db = variant_info['stock_quantity']
-            else: 
-                cursor.execute("SELECT base_price, stock_quantity FROM products WHERE id = ?", (product_id_cart,))
-                product_info = cursor.fetchone()
-                if not product_info:
-                    raise ValueError(f"Produit {item_from_cart.get('name')} (ID: {product_id_cart}) non trouvé.")
-                if product_info['base_price'] is None and not variant_option_id_cart:
-                     raise ValueError(f"Configuration de prix incorrecte pour le produit {product_id_cart}. variant_option_id manquant.")
-                actual_price_db = product_info['base_price']
-                current_stock_db = product_info['stock_quantity']
-            
-            if abs(actual_price_db - price_from_cart) > 0.01: # Price check tolerance
-                current_app.logger.warning(
-                    f"Discordance de prix pour {product_id_cart} (Variante: {variant_option_id_cart}). "
-                    f"Client: {price_from_cart}, DB: {actual_price_db}. Utilisation du prix DB."
-                )
-            
-            if current_stock_db < quantity_ordered:
-                raise ValueError(f"Stock insuffisant pour {item_from_cart.get('name')}. Demandé: {quantity_ordered}, Disponible: {current_stock_db}")
-
-            total_amount_calculated += actual_price_db * quantity_ordered
-            validated_items_for_order.append({
-                "product_id": product_id_cart,
-                "product_name": item_from_cart.get('name'),
-                "quantity": quantity_ordered,
-                "price_at_purchase": actual_price_db,
-                "variant": item_from_cart.get('variant'),
-                "variant_option_id": variant_option_id_cart
+            total_amount += price_at_purchase * quantity
+            order_items_details.append({
+                "product_id": product_id, "variant_id": variant_id, "quantity": quantity,
+                "price_at_purchase": price_at_purchase, "name_fr_at_purchase": item_name
             })
         
-        payment_successful = True # Placeholder for actual payment integration
-        if not payment_successful:
-            if db: db.rollback()
-            return jsonify({"success": False, "message": "Le paiement a échoué."}), 400
+        # 2. Add shipping, taxes if applicable (simplified for now)
+        # shipping_cost = 0 # Calculate based on address/cart total
+        # if total_amount > 0 and total_amount < current_app.config.get('FREE_SHIPPING_THRESHOLD', 75):
+        #     shipping_cost = current_app.config.get('DEFAULT_SHIPPING_COST', 7.50)
+        # total_amount += shipping_cost
+        # tax_amount = total_amount * current_app.config.get('VAT_RATE', 0.20) # Example VAT
+        # total_amount += tax_amount
+        # For now, total_amount is just sum of item prices. Implement full calculation later.
 
-        customer_name_for_order = f"{shipping_address_data.get('firstname', '')} {shipping_address_data.get('lastname', '')}".strip()
-        cursor.execute(
-            "INSERT INTO orders (user_id, customer_email, customer_name, shipping_address, total_amount, status) VALUES (?, ?, ?, ?, ?, ?)",
-            (user_id, customer_email, customer_name_for_order, shipping_address_full, total_amount_calculated, 'Paid')
-        )
+        # 3. Fetch addresses
+        cursor.execute("SELECT * FROM addresses WHERE id = ? AND user_id = ?", (shipping_address_id, current_user_id))
+        shipping_addr = cursor.fetchone()
+        cursor.execute("SELECT * FROM addresses WHERE id = ? AND user_id = ?", (billing_address_id, current_user_id))
+        billing_addr = cursor.fetchone()
+
+        if not shipping_addr or not billing_addr:
+            raise ValueError("Invalid shipping or billing address ID, or address does not belong to user.")
+
+        # 4. Create Order Record
+        # Payment processing would happen here. For now, assume payment is successful.
+        # payment_status = 'succeeded' # Placeholder
+        order_status = 'processing' # Or 'pending_payment' if payment is separate step
+
+        cursor.execute("""
+            INSERT INTO orders (user_id, order_date, total_amount, status, 
+                                shipping_address_line1, shipping_address_line2, shipping_city, shipping_postal_code, shipping_country,
+                                billing_address_line1, billing_address_line2, billing_city, billing_postal_code, billing_country)
+            VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (current_user_id, total_amount, order_status,
+              shipping_addr['address_line1'], shipping_addr.get('address_line2'), shipping_addr['city'], shipping_addr['postal_code'], shipping_addr['country'],
+              billing_addr['address_line1'], billing_addr.get('address_line2'), billing_addr['city'], billing_addr['postal_code'], billing_addr['country']
+              ))
         order_id = cursor.lastrowid
-        current_app.logger.info(f"Commande #{order_id} créée pour {customer_email}.")
 
-        for item in validated_items_for_order:
-            cursor.execute(
-                '''INSERT INTO order_items (order_id, product_id, product_name, quantity, price_at_purchase, variant, variant_option_id) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                (order_id, item['product_id'], item['product_name'], item['quantity'], 
-                 item['price_at_purchase'], item['variant'], item['variant_option_id'])
-            )
-            record_stock_movement(cursor, item['product_id'], -item['quantity'], 'vente', 
-                                  variant_option_id=item['variant_option_id'], order_id=order_id, 
-                                  notes=f"Vente pour commande #{order_id}")
+        # 5. Create Order Items and Update Stock
+        for item_detail in order_items_details:
+            cursor.execute("""
+                INSERT INTO order_items (order_id, product_id, variant_id, quantity, price_at_purchase, name_fr_at_purchase)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (order_id, item_detail['product_id'], item_detail.get('variant_id'), item_detail['quantity'], 
+                  item_detail['price_at_purchase'], item_detail['name_fr_at_purchase']))
+            
+            # Update stock
+            if item_detail.get('variant_id'):
+                cursor.execute("UPDATE product_weight_options SET stock_quantity = stock_quantity - ? WHERE id = ?",
+                               (item_detail['quantity'], item_detail['variant_id']))
+                # Update parent product's total stock (sum of variants)
+                cursor.execute("""
+                    UPDATE products SET stock_quantity = (SELECT SUM(stock_quantity) FROM product_weight_options WHERE product_id = ?)
+                    WHERE id = ?
+                """, (item_detail['product_id'], item_detail['product_id']))
+            else: # Simple product
+                cursor.execute("UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ?",
+                               (item_detail['quantity'], item_detail['product_id']))
+            
+            # Record stock movement
+            record_stock_movement(conn, item_detail['product_id'], item_detail.get('variant_id'), 
+                                  'sale', item_detail['quantity'], f"Order ID: {order_id}")
         
-        db.commit()
+        conn.commit()
+        audit_logger.log_event('order_created', user_id=current_user_id, details={'order_id': order_id, 'total_amount': total_amount})
         
-        return jsonify({
-            "success": True, 
-            "message": "Commande passée avec succès !",
-            "orderId": f"TRUVRA{order_id:05d}",
-            "totalAmount": round(total_amount_calculated, 2)
-        }), 201
+        # Send order confirmation email
+        try:
+            user_email_cursor = conn.cursor()
+            user_email_cursor.execute("SELECT email, first_name FROM users WHERE id = ?", (current_user_id,))
+            user_info = user_email_cursor.fetchone()
+            if user_info:
+                email_subject = f"Confirmation de votre commande #{order_id} - Maison Trüvra"
+                email_body_text = f"Bonjour {user_info['first_name']},\n\nMerci pour votre commande #{order_id} d'un montant de {total_amount:.2f} €.\n"
+                email_body_text += "Détails de la commande:\n"
+                for item in order_items_details:
+                    email_body_text += f"- {item['name_fr_at_purchase']} x {item['quantity']} @ {item['price_at_purchase']:.2f} €\n"
+                email_body_text += f"\nStatut: {order_status}\n\nCordialement,\nL'équipe Maison Trüvra"
+                # Add HTML version later
+                send_email_alert(email_subject, email_body_text, user_info['email'])
+        except Exception as email_e:
+            current_app.logger.error(f"Failed to send order confirmation email for order {order_id}: {email_e}")
 
-    except ValueError as ve:
-        if db: db.rollback()
-        current_app.logger.warning(f"Erreur de validation lors du checkout : {ve}")
-        return jsonify({"success": False, "message": str(ve)}), 400
-    except Exception as e:
-        if db: db.rollback()
-        current_app.logger.error(f"Erreur de checkout : {e}", exc_info=True)
-        return jsonify({"success": False, "message": "Une erreur interne est survenue lors de la création de la commande."}), 500
+
+        return jsonify({"message": "Order created successfully", "order_id": order_id, "total_amount": total_amount, "status": order_status}), 201
+
+    except ValueError as ve: # For stock issues or invalid data
+        conn.rollback()
+        current_app.logger.warning(f"Order creation validation error: {ve}")
+        return jsonify({"message": str(ve)}), 400
+    except sqlite3.Error as e:
+        conn.rollback()
+        current_app.logger.error(f"Database error creating order: {e}")
+        return jsonify({"message": "Failed to create order due to database error", "error": str(e)}), 500
+    except Exception as e: # Catch-all for other unexpected errors
+        conn.rollback()
+        current_app.logger.error(f"Unexpected error creating order: {e}", exc_info=True)
+        return jsonify({"message": "An unexpected error occurred while creating the order.", "error": str(e)}), 500
     finally:
-        if db: db.close()
+        if conn:
+            conn.close()
+
 
 @orders_bp.route('/history', methods=['GET'])
-def get_order_history():
-    # This route should be protected, e.g., by requiring a valid user token
-    user_id = None
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or not auth_header.startswith('Bearer '):
-        return jsonify({"success": False, "message": "Authentification requise."}), 401
-
-    token = auth_header.split(" ")[1]
+@user_jwt_required
+def get_order_history(current_user_id, current_user_role):
+    conn = get_db_connection()
+    cursor = conn.cursor()
     try:
-        payload = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
-        user_id = payload.get('user_id')
-        if not user_id:
-            return jsonify({"success": False, "message": "Token invalide (user_id manquant)."}), 401
-    except jwt.ExpiredSignatureError:
-        return jsonify({"success": False, "message": "Token expiré."}), 401
-    except jwt.InvalidTokenError:
-        return jsonify({"success": False, "message": "Token invalide."}), 401
+        cursor.execute("""
+            SELECT id, order_date, total_amount, status 
+            FROM orders 
+            WHERE user_id = ? 
+            ORDER BY order_date DESC
+        """, (current_user_id,))
+        orders_rows = cursor.fetchall()
+        
+        orders_history = []
+        for order_row_tuple in orders_rows:
+            order_row = dict(order_row_tuple) # Convert from sqlite3.Row to dict
+            # Fetch items for each order
+            items_cursor = conn.cursor() # Use a new cursor for nested query
+            items_cursor.execute("""
+                SELECT product_id, variant_id, quantity, price_at_purchase, name_fr_at_purchase
+                FROM order_items 
+                WHERE order_id = ?
+            """, (order_row['id'],))
+            items_rows = items_cursor.fetchall()
+            order_row['items'] = [dict(item_row) for item_row in items_rows]
+            orders_history.append(order_row)
+            
+        conn.close()
+        return jsonify(orders_history), 200
+    except sqlite3.Error as e:
+        conn.close()
+        current_app.logger.error(f"Database error fetching order history for user {current_user_id}: {e}")
+        return jsonify({"message": "Failed to fetch order history", "error": str(e)}), 500
 
-    db = None
-    try:
-        db = get_db()
-        cursor = db.cursor()
-        cursor.execute(
-            "SELECT order_id, total_amount, order_date, status FROM orders WHERE user_id = ? ORDER BY order_date DESC",
-            (user_id,)
-        )
-        orders = [dict(row) for row in cursor.fetchall()]
-        return jsonify({"success": True, "orders": orders}), 200
-    except Exception as e:
-        current_app.logger.error(f"Erreur lors de la récupération de l'historique des commandes pour l'utilisateur {user_id}: {e}", exc_info=True)
-        return jsonify({"success": False, "message": "Erreur serveur lors de la récupération de l'historique."}), 500
-    finally:
-        if db: db.close()
