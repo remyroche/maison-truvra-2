@@ -186,4 +186,20 @@
   "Numero": "Numéro",
   "Date": "Date",
   "Actions": "Actions"
-}
+  "Pro_Reinitialiser_Mot_De_Passe_Titre": "Réinitialiser le mot de passe",
+  "Pro_Instructions_Mot_De_Passe_Oublie": "Veuillez entrer votre adresse e-mail. Si un compte correspondant existe, nous vous enverrons (théoriquement) un lien pour réinitialiser votre mot de passe.",
+  "Pro_Envoyer_Lien_Reinitialisation": "Envoyer le lien de réinitialisation",
+  "Pro_Traitement_Demande_MDP": "Traitement de votre demande...",
+  "Pro_Email_Reinitialisation_Envoye_Info": "Si votre email est dans notre système, vous recevrez un lien de réinitialisation.",
+  "Pro_Email_Reinitialisation_Envoye_Info_Modal": "Veuillez vérifier votre boîte de réception (et vos spams) pour le lien de réinitialisation.",
+  "Titre_Page_Reinitialiser_MDP": "Réinitialiser Mot de Passe - Maison Trüvra",
+  "Pro_Nouveau_mot_de_passe": "Nouveau mot de passe",
+  "Pro_Confirmer_nouveau_mot_de_passe": "Confirmer le nouveau mot de passe",
+  "Pro_Reinitialiser_Et_Connecter": "Réinitialiser le mot de passe",
+  "Pro_Retour_Login": "Retour à la connexion professionnelle",
+  "Pro_Token_Ou_Email_Manquant_URL": "Token ou email manquant dans l'URL. Impossible de continuer.",
+  "Pro_Token_Ou_Email_Manquant_Impossible_Reinitialiser": "Token ou email invalide. Impossible de réinitialiser.",
+  "Pro_Reinitialisation_En_Cours": "Réinitialisation du mot de passe en cours...",
+  "Pro_MDP_Reinitialise_Succes_Connectez_Vous": "Mot de passe réinitialisé avec succès ! Vous pouvez maintenant vous connecter.",
+  "Pro_MDP_Reinitialise_Succes_Connectez_Vous_Modal": "Votre mot de passe a été changé. Redirection vers la page de connexion...",
+  "Pro_Erreur_Reinitialisation_MDP": "Erreur lors de la réinitialisation du mot de passe. Le lien est peut-être invalide ou expiré."}
