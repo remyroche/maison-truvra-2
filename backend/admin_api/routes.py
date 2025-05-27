@@ -58,6 +58,505 @@ def get_static_url(filename, dir_name):
         return f"/static/{dir_name}/{filename}" # Fallback, adjust as needed
 
 
+
+
+# --- Dashboard ---
+@admin_api_bp.route('/dashboard-stats', methods=['GET'])
+@token_required_admin
+def get_dashboard_stats(current_admin_user):
+    """Provides statistics for the admin dashboard."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    stats = {}
+    try:
+        # Total Sales (sum of total_amount from paid orders)
+        cursor.execute("SELECT SUM(total_amount) FROM orders WHERE payment_status = 'PAID'")
+        total_sales = cursor.fetchone()[0]
+        stats['total_sales'] = total_sales if total_sales is not None else 0
+
+        # Total Orders
+        cursor.execute("SELECT COUNT(*) FROM orders")
+        stats['total_orders'] = cursor.fetchone()[0]
+
+        # New Customers (B2C users created in the last 30 days)
+        cursor.execute("SELECT COUNT(*) FROM users WHERE role = 'B2C' AND created_at >= date('now', '-30 days')")
+        stats['new_customers_last_30_days'] = cursor.fetchone()[0]
+
+        # Pending B2B Approvals
+        cursor.execute("SELECT COUNT(*) FROM users WHERE role = 'B2B_PENDING'")
+        stats['pending_b2b_approvals'] = cursor.fetchone()[0]
+        
+        # Total Products
+        cursor.execute("SELECT COUNT(*) FROM products WHERE is_active = 1")
+        stats['total_active_products'] = cursor.fetchone()[0]
+
+    except sqlite3.Error as e:
+        logger.error(f"Database error in get_dashboard_stats: {e}")
+        return jsonify({"error": "Database error", "details": str(e)}), 500
+    finally:
+        conn.close()
+    return jsonify(stats), 200
+
+# --- User Management ---
+@admin_api_bp.route('/users', methods=['GET'])
+@token_required_admin
+def get_users(current_admin_user):
+    """Fetches all users (B2C and B2B)."""
+    # Implement pagination and filtering as needed
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id, email, first_name, last_name, role, company_name, vat_number, siret_number, is_active, created_at FROM users ORDER BY created_at DESC")
+        users_rows = cursor.fetchall()
+        users = [row_to_dict(cursor, row) for row in users_rows]
+        return jsonify(users), 200
+    except sqlite3.Error as e:
+        logger.error(f"Database error fetching users: {e}")
+        return jsonify({"error": "Failed to fetch users", "details": str(e)}), 500
+    finally:
+        conn.close()
+
+@admin_api_bp.route('/users/<int:user_id>/approve-b2b', methods=['POST'])
+@token_required_admin
+def approve_b2b_user(current_admin_user, user_id):
+    """Approves a B2B user."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE users SET role = 'B2B_APPROVED', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND role = 'B2B_PENDING'", (user_id,))
+        conn.commit()
+        if cursor.rowcount == 0:
+            return jsonify({"error": "User not found or not pending B2B approval"}), 404
+        # Placeholder for AuditLogService.log_event(...)
+        logger.info(f"Admin {current_admin_user.get('username')} approved B2B user ID {user_id}")
+        return jsonify({"message": "B2B user approved successfully"}), 200
+    except sqlite3.Error as e:
+        conn.rollback()
+        logger.error(f"Database error approving B2B user {user_id}: {e}")
+        return jsonify({"error": "Failed to approve B2B user", "details": str(e)}), 500
+    finally:
+        conn.close()
+
+@admin_api_bp.route('/users/<int:user_id>/toggle-active', methods=['POST'])
+@token_required_admin
+def toggle_user_active_status(current_admin_user, user_id):
+    """Toggles the active status of a user."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT is_active FROM users WHERE id = ?", (user_id,))
+        user_row = cursor.fetchone()
+        if not user_row:
+            return jsonify({"error": "User not found"}), 404
+        
+        new_status = not user_row['is_active']
+        cursor.execute("UPDATE users SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (new_status, user_id))
+        conn.commit()
+        
+        action = "activated" if new_status else "deactivated"
+        logger.info(f"Admin {current_admin_user.get('username')} {action} user ID {user_id}")
+        return jsonify({"message": f"User status toggled successfully. User is now {action}.", "new_status": new_status}), 200
+    except sqlite3.Error as e:
+        conn.rollback()
+        logger.error(f"Database error toggling active status for user {user_id}: {e}")
+        return jsonify({"error": "Failed to toggle user active status", "details": str(e)}), 500
+    finally:
+        conn.close()
+
+
+# --- Order Management ---
+@admin_api_bp.route('/orders', methods=['GET'])
+@token_required_admin
+def get_orders(current_admin_user):
+    """Fetches B2C orders with pagination."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', current_config.ITEMS_PER_PAGE_ADMIN, type=int)
+        if page < 1: page = 1
+        if per_page < 1: per_page = current_config.ITEMS_PER_PAGE_ADMIN
+        if per_page > 100: per_page = 100 # Max limit
+
+        offset = (page - 1) * per_page
+
+        # Get total number of orders
+        cursor.execute("SELECT COUNT(*) FROM orders")
+        total_orders = cursor.fetchone()[0]
+        total_pages = math.ceil(total_orders / per_page)
+
+        # Fetch orders for the current page
+        # Joined with users to get customer email/name if available
+        query = """
+            SELECT 
+                o.id, o.order_reference, o.total_amount, o.status, o.payment_status, o.created_at,
+                o.shipping_address_line1, o.shipping_city, o.shipping_postal_code, o.shipping_country,
+                o.tracking_number,
+                u.email AS customer_email, 
+                u.first_name AS customer_first_name, 
+                u.last_name AS customer_last_name
+            FROM orders o
+            LEFT JOIN users u ON o.user_id = u.id
+            ORDER BY o.created_at DESC
+            LIMIT ? OFFSET ?
+        """
+        cursor.execute(query, (per_page, offset))
+        orders_rows = cursor.fetchall()
+        orders = [row_to_dict(cursor, row) for row in orders_rows]
+
+        return jsonify({
+            "orders": orders,
+            "page": page,
+            "per_page": per_page,
+            "total_orders": total_orders,
+            "total_pages": total_pages
+        }), 200
+
+    except sqlite3.Error as e:
+        logger.error(f"Database error fetching orders: {e}")
+        return jsonify({"error": "Failed to fetch orders", "details": str(e)}), 500
+    finally:
+        conn.close()
+
+@admin_api_bp.route('/orders/<int:order_id>', methods=['GET'])
+@token_required_admin
+def get_order_details(current_admin_user, order_id):
+    """Fetches details for a specific order, including its items."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Fetch order details
+        cursor.execute("""
+            SELECT o.*, u.email as user_email, u.first_name, u.last_name
+            FROM orders o
+            LEFT JOIN users u ON o.user_id = u.id
+            WHERE o.id = ?
+        """, (order_id,))
+        order_row = cursor.fetchone()
+        if not order_row:
+            return jsonify({"error": "Order not found"}), 404
+        order = row_to_dict(cursor, order_row)
+
+        # Fetch order items
+        cursor.execute("""
+            SELECT oi.*, p.name_fr as product_name_fr_current, p.name_en as product_name_en_current,
+                   po.value_fr as option_value_fr_current, po.value_en as option_value_en_current
+            FROM order_items oi
+            JOIN products p ON oi.product_id = p.id
+            LEFT JOIN product_options po ON oi.product_option_id = po.id
+            WHERE oi.order_id = ?
+        """, (order_id,))
+        order_items_rows = cursor.fetchall()
+        order['items'] = [row_to_dict(cursor, row) for row in order_items_rows]
+
+        return jsonify(order), 200
+    except sqlite3.Error as e:
+        logger.error(f"Database error fetching order details for order {order_id}: {e}")
+        return jsonify({"error": "Failed to fetch order details", "details": str(e)}), 500
+    finally:
+        conn.close()
+
+
+@admin_api_bp.route('/orders/<int:order_id>/status', methods=['PUT'])
+@token_required_admin
+def update_order_status(current_admin_user, order_id):
+    """Updates the status of an order."""
+    data = request.get_json()
+    new_status = data.get('status')
+    tracking_number = data.get('tracking_number', None) # Optional tracking number
+
+    if not new_status:
+        return jsonify({"error": "New status is required"}), 400
+    
+    # Basic validation for allowed statuses (expand as needed)
+    allowed_statuses = ['PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELED', 'REFUNDED']
+    if new_status.upper() not in allowed_statuses:
+        return jsonify({"error": f"Invalid status. Allowed statuses are: {', '.join(allowed_statuses)}"}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Check if order exists
+        cursor.execute("SELECT id FROM orders WHERE id = ?", (order_id,))
+        if not cursor.fetchone():
+            return jsonify({"error": "Order not found"}), 404
+
+        if tracking_number and new_status.upper() == 'SHIPPED':
+            cursor.execute("UPDATE orders SET status = ?, tracking_number = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", 
+                           (new_status.upper(), tracking_number, order_id))
+        else:
+            cursor.execute("UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", 
+                           (new_status.upper(), order_id))
+        conn.commit()
+
+        if cursor.rowcount == 0: # Should not happen if previous check passed
+             return jsonify({"error": "Order not found or status not updated"}), 404
+
+        logger.info(f"Admin {current_admin_user.get('username')} updated order ID {order_id} to status {new_status.upper()}")
+        # Potentially trigger email notification to customer here
+        return jsonify({"message": "Order status updated successfully", "new_status": new_status.upper()}), 200
+    except sqlite3.Error as e:
+        conn.rollback()
+        logger.error(f"Database error updating status for order {order_id}: {e}")
+        return jsonify({"error": "Failed to update order status", "details": str(e)}), 500
+    finally:
+        conn.close()
+
+# --- Category Management ---
+@admin_api_bp.route('/categories', methods=['POST'])
+@token_required_admin
+def create_category(current_admin_user):
+    """Creates a new category."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No input data provided"}), 400
+
+    required_fields = ['name_fr', 'name_en']
+    for field in required_fields:
+        if field not in data or not data[field]:
+            return jsonify({"error": f"Missing required field: {field}"}), 400
+
+    name_fr = data['name_fr']
+    name_en = data['name_en']
+    description_fr = data.get('description_fr', '')
+    description_en = data.get('description_en', '')
+    image_url = data.get('image_url', '')
+    
+    # Generate slug from French name if not provided, or use provided slug
+    custom_slug = data.get('slug')
+    if custom_slug:
+        slug = slugify(custom_slug)
+    else:
+        slug = slugify(name_fr)
+
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO categories (name_fr, name_en, description_fr, description_en, slug, image_url, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """, (name_fr, name_en, description_fr, description_en, slug, image_url))
+        conn.commit()
+        category_id = cursor.lastrowid
+        logger.info(f"Admin {current_admin_user.get('username')} created category ID {category_id} ('{name_fr}')")
+        
+        # Fetch the created category to return it
+        cursor.execute("SELECT * FROM categories WHERE id = ?", (category_id,))
+        new_category = row_to_dict(cursor, cursor.fetchone())
+        return jsonify({"message": "Category created successfully", "category": new_category}), 201
+    except sqlite3.IntegrityError as e: # Handles UNIQUE constraint violations
+        conn.rollback()
+        logger.error(f"Database integrity error creating category '{name_fr}': {e}")
+        error_detail = str(e).lower()
+        if "unique constraint failed: categories.name_fr" in error_detail:
+            return jsonify({"error": "Category name (French) already exists."}), 409
+        elif "unique constraint failed: categories.name_en" in error_detail:
+            return jsonify({"error": "Category name (English) already exists."}), 409
+        elif "unique constraint failed: categories.slug" in error_detail:
+            return jsonify({"error": "Category slug already exists. Try a different name or custom slug."}), 409
+        return jsonify({"error": "Failed to create category due to a conflict.", "details": str(e)}), 409
+    except sqlite3.Error as e:
+        conn.rollback()
+        logger.error(f"Database error creating category '{name_fr}': {e}")
+        return jsonify({"error": "Failed to create category", "details": str(e)}), 500
+    finally:
+        conn.close()
+
+@admin_api_bp.route('/categories', methods=['GET'])
+@token_required_admin
+def get_categories(current_admin_user):
+    """Fetches all categories with optional pagination."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 0, type=int) # 0 means all, otherwise paginate
+
+        if page < 1: page = 1
+        
+        if per_page > 0 : # Paginate
+            if per_page > 100: per_page = 100 # Max limit
+            offset = (page - 1) * per_page
+
+            cursor.execute("SELECT COUNT(*) FROM categories")
+            total_categories = cursor.fetchone()[0]
+            total_pages = math.ceil(total_categories / per_page) if per_page > 0 else 1
+
+            cursor.execute("SELECT * FROM categories ORDER BY name_fr LIMIT ? OFFSET ?", (per_page, offset))
+            categories_rows = cursor.fetchall()
+            categories = [row_to_dict(cursor, row) for row in categories_rows]
+            
+            return jsonify({
+                "categories": categories,
+                "page": page,
+                "per_page": per_page,
+                "total_categories": total_categories,
+                "total_pages": total_pages
+            }), 200
+        else: # Get all categories
+            cursor.execute("SELECT * FROM categories ORDER BY name_fr")
+            categories_rows = cursor.fetchall()
+            categories = [row_to_dict(cursor, row) for row in categories_rows]
+            return jsonify({"categories": categories, "total_categories": len(categories)}), 200
+
+    except sqlite3.Error as e:
+        logger.error(f"Database error fetching categories: {e}")
+        return jsonify({"error": "Failed to fetch categories", "details": str(e)}), 500
+    finally:
+        conn.close()
+
+@admin_api_bp.route('/categories/<int:category_id>', methods=['GET'])
+@token_required_admin
+def get_category(current_admin_user, category_id):
+    """Fetches a single category by ID."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT * FROM categories WHERE id = ?", (category_id,))
+        category_row = cursor.fetchone()
+        if not category_row:
+            return jsonify({"error": "Category not found"}), 404
+        category = row_to_dict(cursor, category_row)
+        return jsonify(category), 200
+    except sqlite3.Error as e:
+        logger.error(f"Database error fetching category {category_id}: {e}")
+        return jsonify({"error": "Failed to fetch category", "details": str(e)}), 500
+    finally:
+        conn.close()
+
+@admin_api_bp.route('/categories/<int:category_id>', methods=['PUT'])
+@token_required_admin
+def update_category(current_admin_user, category_id):
+    """Updates an existing category."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No input data provided"}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        # Check if category exists
+        cursor.execute("SELECT * FROM categories WHERE id = ?", (category_id,))
+        category_row = cursor.fetchone()
+        if not category_row:
+            return jsonify({"error": "Category not found"}), 404
+        
+        current_category = row_to_dict(cursor, category_row)
+
+        name_fr = data.get('name_fr', current_category['name_fr'])
+        name_en = data.get('name_en', current_category['name_en'])
+        description_fr = data.get('description_fr', current_category['description_fr'])
+        description_en = data.get('description_en', current_category['description_en'])
+        image_url = data.get('image_url', current_category['image_url'])
+        
+        # Regenerate slug if name_fr changed and no custom slug provided, or use provided/existing slug
+        custom_slug = data.get('slug')
+        if custom_slug:
+            slug = slugify(custom_slug)
+        elif 'name_fr' in data and data['name_fr'] != current_category['name_fr']: # name_fr changed, no custom slug
+            slug = slugify(name_fr)
+        else: # name_fr not changed or custom slug not provided, use existing
+            slug = current_category['slug']
+
+
+        if not name_fr or not name_en: # Basic validation
+             return jsonify({"error": "Category names (French and English) cannot be empty"}), 400
+
+
+        cursor.execute("""
+            UPDATE categories SET
+            name_fr = ?, name_en = ?, description_fr = ?, description_en = ?, slug = ?, image_url = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (name_fr, name_en, description_fr, description_en, slug, image_url, category_id))
+        conn.commit()
+
+        if cursor.rowcount == 0: # Should not happen if previous check passed
+             return jsonify({"error": "Category not found or not updated"}), 404
+        
+        logger.info(f"Admin {current_admin_user.get('username')} updated category ID {category_id} ('{name_fr}')")
+        
+        # Fetch the updated category to return it
+        cursor.execute("SELECT * FROM categories WHERE id = ?", (category_id,))
+        updated_category = row_to_dict(cursor, cursor.fetchone())
+        return jsonify({"message": "Category updated successfully", "category": updated_category}), 200
+    except sqlite3.IntegrityError as e: # Handles UNIQUE constraint violations
+        conn.rollback()
+        logger.error(f"Database integrity error updating category {category_id}: {e}")
+        error_detail = str(e).lower()
+        if "unique constraint failed: categories.name_fr" in error_detail:
+            return jsonify({"error": "Category name (French) already exists."}), 409
+        elif "unique constraint failed: categories.name_en" in error_detail:
+            return jsonify({"error": "Category name (English) already exists."}), 409
+        elif "unique constraint failed: categories.slug" in error_detail:
+            return jsonify({"error": "Category slug already exists. Try a different name or custom slug."}), 409
+        return jsonify({"error": "Failed to update category due to a conflict.", "details": str(e)}), 409
+    except sqlite3.Error as e:
+        conn.rollback()
+        logger.error(f"Database error updating category {category_id}: {e}")
+        return jsonify({"error": "Failed to update category", "details": str(e)}), 500
+    finally:
+        conn.close()
+
+@admin_api_bp.route('/categories/<int:category_id>', methods=['DELETE'])
+@token_required_admin
+def delete_category(current_admin_user, category_id):
+    """Deletes a category."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Check if category exists
+        cursor.execute("SELECT name_fr FROM categories WHERE id = ?", (category_id,))
+        category_row = cursor.fetchone()
+        if not category_row:
+            return jsonify({"error": "Category not found"}), 404
+        
+        category_name = category_row['name_fr']
+
+        # Products linked to this category will have their category_id set to NULL due to ON DELETE SET NULL
+        cursor.execute("DELETE FROM categories WHERE id = ?", (category_id,))
+        conn.commit()
+
+        if cursor.rowcount == 0: # Should not happen
+            return jsonify({"error": "Category not found or not deleted"}), 404
+
+        logger.info(f"Admin {current_admin_user.get('username')} deleted category ID {category_id} ('{category_name}')")
+        return jsonify({"message": f"Category '{category_name}' (ID: {category_id}) deleted successfully. Associated products now have no category."}), 200
+    except sqlite3.Error as e: # Catch other potential errors, though ON DELETE SET NULL should prevent FK issues here
+        conn.rollback()
+        logger.error(f"Database error deleting category {category_id}: {e}")
+        return jsonify({"error": "Failed to delete category", "details": str(e)}), 500
+    finally:
+        conn.close()
+
+
+# --- Product Management (Placeholder - to be expanded) ---
+@admin_api_bp.route('/products', methods=['GET'])
+@token_required_admin
+def get_products_admin(current_admin_user):
+    # This is a simplified version. You'll need pagination, filtering, sorting, etc.
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Example: Fetch products with their category names
+        cursor.execute("""
+            SELECT p.*, c.name_fr as category_name_fr, c.name_en as category_name_en
+            FROM products p
+            LEFT JOIN categories c ON p.category_id = c.id
+            ORDER BY p.created_at DESC
+        """)
+        products_rows = cursor.fetchall()
+        products = [row_to_dict(cursor, row) for row in products_rows]
+        return jsonify(products), 200
+    except sqlite3.Error as e:
+        logger.error(f"Database error fetching products for admin: {e}")
+        return jsonify({"error": "Failed to fetch products", "details": str(e)}), 500
+    finally:
+        conn.close()
+
+
 @admin_api_bp.route('/products', methods=['POST'])
 @admin_required
 def create_product():
@@ -436,116 +935,7 @@ def get_admin_product_details(product_id):
     return jsonify({'success': True, 'product': product_dict})
 
 
-@admin_api_bp.route('/users', methods=['GET'])
-@admin_required
-def get_users():
-    # Assuming User model
-    try:
-        user_type_filter = request.args.get('user_type')
-        status_filter = request.args.get('status')
-        page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 10, type=int)
 
-        # query = User.query # ORM
-        # if user_type_filter:
-        #     # Standardize on 'b2b' for professional type internally
-        #     db_user_type = 'b2b' if user_type_filter.lower() in ['b2b', 'professional'] else user_type_filter.lower()
-        #     query = query.filter(User.user_type == db_user_type)
-        # if status_filter:
-        #     query = query.filter(User.status == status_filter.lower())
-        # users_pagination = query.order_by(User.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False) # ORM
-        # users_data = [user.to_dict(include_sensitive=True) for user in users_pagination.items] # ORM (Be careful with include_sensitive)
-
-        # --- Mocking ORM ---
-        users_data = [{"id":1, "email":"user@example.com", "user_type":"b2c", "status":"active"}]
-        users_pagination_total = 1
-        users_pagination_pages = 1
-        # --- End Mocking ---
-
-        AuditLogService.log_event(action="ADMIN_VIEWED_USERS_LIST", details={"page": page, "type": user_type_filter, "status": status_filter})
-        return jsonify({
-            'success': True, 'users': users_data,
-            'total': users_pagination_total, # users_pagination.total,
-            'pages': users_pagination_pages, # users_pagination.pages,
-            'current_page': page # users_pagination.page
-        })
-    except Exception as e:
-        log_error(f"Error fetching users: {e}")
-        AuditLogService.log_event(action="ADMIN_VIEW_USERS_ERROR", details={"error": str(e)}, success=False)
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-# This route seems to duplicate /users/b2b/<int:user_id>/approve. Consolidating.
-# @admin_api_bp.route('/users/<int:user_id>/approve', methods=['POST'])
-# @admin_required
-# def approve_professional_user(user_id): ...
-
-# This route seems to duplicate /users/b2b/<int:user_id>/status. Consolidating.
-# @admin_api_bp.route('/users/<int:user_id>/status', methods=['PUT'])
-# @admin_required
-# def update_user_status(user_id): ...
-
-
-@admin_api_bp.route('/orders', methods=['GET'])
-@admin_required
-def get_orders():
-    # Assuming Order model
-    try:
-        page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 10, type=int)
-        # orders_pagination = Order.query.order_by(Order.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False) # ORM
-        # orders_data = [] # ORM
-        # for order in orders_pagination.items: # ORM
-        #     order_dict = order.to_dict() # ORM
-        #     order_dict['user'] = order.user.to_dict() if order.user else None # ORM
-        #     order_dict['items'] = [item.to_dict() for item in order.items] # ORM
-        #     orders_data.append(order_dict) # ORM
-        
-        # --- Mocking ORM ---
-        orders_data = [{"id":1, "order_number":"ORD001", "user":{"email":"user@example.com"}, "items":[]}]
-        orders_pagination_total = 1
-        orders_pagination_pages = 1
-        # --- End Mocking ---
-
-        AuditLogService.log_event(action="ADMIN_VIEWED_ORDERS_LIST", details={"page": page})
-        return jsonify({
-            'success': True, 'orders': orders_data,
-            'total': orders_pagination_total, # orders_pagination.total,
-            'pages': orders_pagination_pages, # orders_pagination.pages,
-            'current_page': page # orders_pagination.page
-        })
-    except Exception as e:
-        log_error(f"Error fetching orders: {e}")
-        AuditLogService.log_event(action="ADMIN_VIEW_ORDERS_ERROR", details={"error": str(e)}, success=False)
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-
-@admin_api_bp.route('/orders/<int:order_id>/status', methods=['PUT'])
-@admin_required
-def update_order_status(order_id):
-    # order = Order.query.get_or_404(order_id) # ORM
-    # --- Mocking ORM ---
-    class MockOrder:
-        def __init__(self, id): self.id = id; self.status = "pending"
-    order = MockOrder(order_id)
-    # --- End Mocking ---
-    data = request.get_json()
-    new_status = data.get('status')
-
-    if not new_status: # Add validation for allowed statuses
-        AuditLogService.log_event(action="ADMIN_UPDATE_ORDER_STATUS_FAIL", target_id=order_id, details={"error": "Missing status"}, success=False)
-        return jsonify({'success': False, 'message': 'New status not provided.'}), 400
-    
-    old_status = order.status
-    order.status = new_status
-    try:
-        # db.session.commit() # ORM
-        AuditLogService.log_event(action="ADMIN_UPDATED_ORDER_STATUS", target_type="ORDER", target_id=order_id, details={"old": old_status, "new": new_status})
-        return jsonify({'success': True, 'message': f'Order {order_id} status updated to {new_status}.'})
-    except Exception as e:
-        # db.session.rollback() # ORM
-        log_error(f"Error updating status for order {order_id}: {e}")
-        AuditLogService.log_event(action="ADMIN_UPDATE_ORDER_STATUS_DB_FAIL", target_id=order_id, details={"error": str(e)}, success=False)
-        return jsonify({'success': False, 'message': f'Database error: {e}'}), 500
 
 
 @admin_api_bp.route('/stock-movements', methods=['POST'])
@@ -716,45 +1106,6 @@ def get_invoices():
         log_error(f"Error fetching invoices: {e}")
         AuditLogService.log_event(action="ADMIN_VIEW_INVOICES_ERROR", details={"error": str(e)}, success=False)
         return jsonify({'success': False, 'message': str(e)}), 500
-
-
-@admin_api_bp.route('/dashboard-stats', methods=['GET'])
-@admin_required
-def get_dashboard_stats():
-    try:
-        # product_count = Product.query.count() # ORM
-        # seven_days_ago = datetime.datetime.utcnow() - timedelta(days=7) # Corrected
-        # recent_orders_count = Order.query.filter(Order.created_at >= seven_days_ago).count() # ORM
-        # new_users_count = User.query.filter(User.created_at >= seven_days_ago).count() # ORM
-        # total_sales_query = db.session.query(func.sum(Order.total_amount)).filter( # ORM
-        #     or_(Order.status == 'completed', Order.status == 'paid') 
-        # ).scalar()
-        # total_sales = float(total_sales_query) if total_sales_query else 0.0 # ORM
-        # pending_b2b_approvals = User.query.filter_by(user_type='b2b', status='pending_approval').count() # ORM (use 'b2b')
-
-        # --- Mocking ORM ---
-        product_count = 10
-        recent_orders_count = 5
-        new_users_count = 3
-        total_sales = 1250.75
-        pending_b2b_approvals = 2
-        # --- End Mocking ---
-        
-        AuditLogService.log_event(action="ADMIN_VIEWED_DASHBOARD_STATS")
-        return jsonify({
-            'success': True,
-            'stats': {
-                'total_products': product_count,
-                'recent_orders_count': recent_orders_count,
-                'new_users_count': new_users_count,
-                'total_sales': total_sales,
-                'pending_b2b_approvals': pending_b2b_approvals
-            }
-        })
-    except Exception as e:
-        log_error(f"Error fetching dashboard stats: {e}")
-        AuditLogService.log_event(action="ADMIN_VIEW_DASHBOARD_STATS_ERROR", details={"error": str(e)}, success=False)
-        return jsonify({'success': False, 'message': f'Error fetching stats: {str(e)}'}), 500
 
 # --- B2B User Management (Consolidated and using ORM style) ---
 @admin_api_bp.route('/users/b2b/pending', methods=['GET'])
