@@ -31,9 +31,9 @@ function getCurrentUser() {
         try {
             return JSON.parse(userString);
         } catch (e) {
-            console.error("Erreur lors du parsing des données utilisateur:", e);
+            console.error(t('Erreur_lors_du_parsing_des_donnees_utilisateur'), e); // i18n
             sessionStorage.removeItem('currentUser');
-            sessionStorage.removeItem('authToken'); // Also clear token if user data is corrupt
+            sessionStorage.removeItem('authToken');
             return null;
         }
     }
@@ -54,28 +54,21 @@ function setCurrentUser(userData, token = null) {
         sessionStorage.removeItem('authToken');
     }
     updateLoginState();
-    updateCartCountDisplay(); // Cart display might depend on login state (e.g. merging carts)
+    if (typeof updateCartCountDisplay === 'function') updateCartCountDisplay();
 }
 
 /**
  * Logs out the current user.
- * Clears user data and token from session storage, updates UI.
  */
 async function logoutUser() {
-    const currentUser = getCurrentUser();
-    // if (currentUser) {
-        // Optional: Call a backend logout endpoint if it exists and is necessary
-        // await makeApiRequest('/auth/logout', 'POST', null, true);
-    // }
-    setCurrentUser(null); // This will clear session storage and update UI
-    showGlobalMessage("Vous avez été déconnecté.", "info");
+    setCurrentUser(null);
+    showGlobalMessage(t('Deconnecte_message'), "info"); // i18n
 
-    // Redirect if on account or payment page, otherwise just update state
     if (document.body.id === 'page-compte' || document.body.id === 'page-paiement') {
         window.location.href = 'compte.html';
     } else {
-        updateLoginState(); // Redundant if setCurrentUser calls it, but safe.
-        if (document.body.id === 'page-compte') displayAccountDashboard(); // Refresh account page view
+        updateLoginState();
+        if (document.body.id === 'page-compte') displayAccountDashboard();
     }
 }
 
@@ -84,31 +77,47 @@ async function logoutUser() {
  */
 function updateLoginState() {
     const currentUser = getCurrentUser();
-    const accountLinkDesktop = document.querySelector('header nav a[href="compte.html"]');
-    const accountLinkMobile = document.querySelector('#mobile-menu-dropdown a[href="compte.html"]');
-    const cartIconDesktop = document.querySelector('header a[href="panier.html"]');
-    const cartIconMobile = document.querySelector('.md\\:hidden a[href="panier.html"]');
+    const accountLinkTextDesktop = document.getElementById('account-link-text-desktop');
+    const accountLinkTextMobile = document.getElementById('account-link-text-mobile'); // Assuming you added this ID
+
+    // Fallback to querySelector if specific IDs aren't present (e.g. if header.html wasn't updated)
+    const accountLinkDesktopContainer = document.querySelector('header nav a[href="compte.html"]');
+    const accountLinkMobileContainer = document.querySelector('#mobile-menu-dropdown a[href="compte.html"]');
+
+
+    const desktopTextElement = accountLinkTextDesktop || (accountLinkDesktopContainer ? accountLinkDesktopContainer.querySelector('span') : null);
+    const mobileTextElement = accountLinkTextMobile || accountLinkMobileContainer;
+
 
     if (currentUser) {
-        if (accountLinkDesktop) accountLinkDesktop.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-7 h-7 text-brand-classic-gold"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg> <span class="ml-1 text-xs">${currentUser.prenom || 'Compte'}</span>`;
-        if (accountLinkMobile) accountLinkMobile.textContent = `Mon Compte (${currentUser.prenom || ''})`;
+        const userName = currentUser.prenom || t('Compte'); // i18n for "Compte"
+        if (desktopTextElement) {
+            desktopTextElement.textContent = userName;
+            // Ensure SVG is present if we are only updating text of a span
+            if (accountLinkDesktopContainer && !accountLinkDesktopContainer.querySelector('svg')) {
+                 accountLinkDesktopContainer.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-7 h-7 text-brand-classic-gold"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg> <span class="ml-1 text-xs">${userName}</span>`;
+            }
+        }
+        if (mobileTextElement) mobileTextElement.textContent = `${t('Mon_Compte_Menu')} (${userName})`; // i18n
     } else {
-        if (accountLinkDesktop) accountLinkDesktop.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-7 h-7"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>`;
-        if (accountLinkMobile) accountLinkMobile.textContent = 'Mon Compte';
+        if (desktopTextElement) {
+            desktopTextElement.textContent = t('Mon_Compte_Menu'); // i18n
+             if (accountLinkDesktopContainer && !accountLinkDesktopContainer.querySelector('svg')) {
+                 accountLinkDesktopContainer.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-7 h-7"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg> <span class="ml-1 text-xs">${t('Mon_Compte_Menu')}</span>`;
+            }
+        }
+        if (mobileTextElement) mobileTextElement.textContent = t('Mon_Compte_Menu'); // i18n
     }
-    // Ensure cart icons are always visible (count will be updated by updateCartCountDisplay)
-    if(cartIconDesktop) cartIconDesktop.style.display = 'inline-flex';
-    if(cartIconMobile) cartIconMobile.style.display = 'inline-flex';
 }
+
 
 /**
  * Handles the login form submission.
- * @param {Event} event - The form submission event.
  */
 async function handleLogin(event) {
     event.preventDefault();
     const loginForm = event.target;
-    clearFormErrors(loginForm); // Assumes clearFormErrors is in ui.js
+    clearFormErrors(loginForm);
     const emailField = loginForm.querySelector('#login-email');
     const passwordField = loginForm.querySelector('#login-password');
     const email = emailField.value;
@@ -118,97 +127,90 @@ async function handleLogin(event) {
     let isValid = true;
     if (loginMessageElement) loginMessageElement.textContent = '';
 
-    if (!email || !validateEmail(email)) { // Assumes validateEmail is in ui.js
-        setFieldError(emailField, "Veuillez entrer une adresse e-mail valide."); // Assumes setFieldError is in ui.js
+    if (!email || !validateEmail(email)) {
+        setFieldError(emailField, t('Veuillez_entrer_une_adresse_e-mail_valide')); // i18n
         isValid = false;
     }
     if (!password) {
-        setFieldError(passwordField, "Veuillez entrer votre mot de passe.");
+        setFieldError(passwordField, t('Veuillez_entrer_votre_mot_de_passe')); // i18n
         isValid = false;
     }
     if (!isValid) {
-        showGlobalMessage("Veuillez corriger les erreurs dans le formulaire.", "error"); // Assumes showGlobalMessage is in ui.js
+        showGlobalMessage(t('Veuillez_corriger_les_erreurs_dans_le_formulaire'), "error"); // i18n
         return;
     }
 
-    showGlobalMessage("Connexion en cours...", "info", 60000); // Long timeout for login process
+    showGlobalMessage(t('Connexion_en_cours'), "info", 60000); // i18n
 
     try {
-        // Assumes makeApiRequest is in api.js and API_BASE_URL is in config.js
-        const result = await makeApiRequest('/auth/login', 'POST', { email, password });
+        const result = await makeApiRequest('/auth/login', 'POST', { email, password }); // makeApiRequest sends lang
         if (result.success && result.user && result.token) {
             setCurrentUser(result.user, result.token);
-            showGlobalMessage(result.message || "Connexion réussie!", "success");
+            showGlobalMessage(result.message || t('Connexion_reussie'), "success"); // i18n "Connexion_reussie"
             loginForm.reset();
-            displayAccountDashboard(); // Display the dashboard view
+            displayAccountDashboard();
         } else {
-            setCurrentUser(null); // Clear any partial login state
-            const generalErrorMessage = result.message || "Échec de la connexion. Vérifiez vos identifiants.";
+            setCurrentUser(null);
+            const generalErrorMessage = result.message || t('Echec_de_la_connexion_Verifiez_vos_identifiants'); // i18n
             showGlobalMessage(generalErrorMessage, "error");
             if (loginMessageElement) loginMessageElement.textContent = generalErrorMessage;
-            setFieldError(emailField, " "); // Mark fields as potentially incorrect (empty message or specific)
+            setFieldError(emailField, " ");
             setFieldError(passwordField, generalErrorMessage);
         }
     } catch (error) {
-        setCurrentUser(null); // Clear any partial login state on error
-        // Error message is already shown by makeApiRequest's catch block
-        if (loginMessageElement) loginMessageElement.textContent = error.message || "Erreur de connexion au serveur.";
+        setCurrentUser(null);
+        if (loginMessageElement) loginMessageElement.textContent = error.message || t('Erreur_de_connexion_au_serveur'); // i18n
     }
 }
 
 /**
  * Handles the registration form submission.
- * Note: This is a placeholder as the actual registration form HTML is missing.
- * @param {Event} event - The form submission event.
  */
 async function handleRegistrationForm(event) {
     event.preventDefault();
     const form = event.target;
     clearFormErrors(form);
-    
-    const emailField = form.querySelector('#register-email'); // Assuming IDs like #register-email
+
+    const emailField = form.querySelector('#register-email');
     const passwordField = form.querySelector('#register-password');
     const confirmPasswordField = form.querySelector('#register-confirm-password');
     const nomField = form.querySelector('#register-nom');
     const prenomField = form.querySelector('#register-prenom');
-    
+
     let isValid = true;
 
     if (!emailField.value || !validateEmail(emailField.value)) {
-        setFieldError(emailField, "E-mail invalide."); isValid = false;
+        setFieldError(emailField, t('E-mail_invalide')); isValid = false; // i18n
     }
     if (!nomField.value.trim()) {
-        setFieldError(nomField, "Nom requis."); isValid = false;
+        setFieldError(nomField, t('Nom_requis')); isValid = false; // i18n
     }
     if (!prenomField.value.trim()) {
-        setFieldError(prenomField, "Prénom requis."); isValid = false;
+        setFieldError(prenomField, t('Prenom_requis')); isValid = false; // i18n
     }
     if (passwordField.value.length < 8) {
-        setFieldError(passwordField, "Le mot de passe doit faire au moins 8 caractères."); isValid = false;
+        setFieldError(passwordField, t('Mot_de_passe_8_caracteres')); isValid = false; // i18n + add key
     }
     if (passwordField.value !== confirmPasswordField.value) {
-        setFieldError(confirmPasswordField, "Les mots de passe ne correspondent pas."); isValid = false;
+        setFieldError(confirmPasswordField, t('Mots_de_passe_ne_correspondent_pas')); isValid = false; // i18n + add key
     }
 
     if (!isValid) {
-        showGlobalMessage("Veuillez corriger les erreurs du formulaire d'inscription.", "error");
+        showGlobalMessage(t('Veuillez_corriger_les_erreurs_formulaire_inscription'), "error"); // i18n + add key
         return;
     }
 
-    showGlobalMessage("Création du compte...", "info");
+    showGlobalMessage(t('Creation_du_compte'), "info"); // i18n + add key
     try {
         const result = await makeApiRequest('/auth/register', 'POST', {
-            email: emailField.value,
-            password: passwordField.value,
-            nom: nomField.value,
-            prenom: prenomField.value
+            email: emailField.value, password: passwordField.value,
+            nom: nomField.value, prenom: prenomField.value
         });
         if (result.success) {
-            showGlobalMessage(result.message || "Compte créé avec succès ! Veuillez vous connecter.", "success");
+            showGlobalMessage(result.message || t('Compte_cree_avec_succes_Veuillez_vous_connecter'), "success"); // i18n
             form.reset();
-            // Potentially switch to login form/tab or redirect to login page
         } else {
-            showGlobalMessage(result.message || "Erreur lors de l'inscription.", "error");
+            showGlobalMessage(result.message || t('Erreur_lors_de_linscription'), "error"); // i18n
         }
     } catch (error) {
         // Error message shown by makeApiRequest
@@ -217,8 +219,7 @@ async function handleRegistrationForm(event) {
 }
 
 /**
- * Displays the account dashboard if the user is logged in,
- * otherwise shows the login/register section.
+ * Displays the account dashboard.
  */
 function displayAccountDashboard() {
     const loginRegisterSection = document.getElementById('login-register-section');
@@ -228,22 +229,24 @@ function displayAccountDashboard() {
     if (currentUser && loginRegisterSection && accountDashboardSection) {
         loginRegisterSection.style.display = 'none';
         accountDashboardSection.style.display = 'block';
-        
+
         const dashboardUsername = document.getElementById('dashboard-username');
         const dashboardEmail = document.getElementById('dashboard-email');
         if(dashboardUsername) dashboardUsername.textContent = `${currentUser.prenom || ''} ${currentUser.nom || ''}`;
         if(dashboardEmail) dashboardEmail.textContent = currentUser.email;
-        
+
         const logoutButton = document.getElementById('logout-button');
         if (logoutButton) {
-            logoutButton.removeEventListener('click', logoutUser); // Avoid multiple listeners
+            logoutButton.removeEventListener('click', logoutUser);
             logoutButton.addEventListener('click', logoutUser);
         }
-        loadOrderHistory(); // Load order history when dashboard is displayed
+        loadOrderHistory();
     } else if (loginRegisterSection) {
         loginRegisterSection.style.display = 'block';
         if (accountDashboardSection) accountDashboardSection.style.display = 'none';
     }
+    // Translate static parts of the dashboard if not done by translatePageElements on load
+    if(window.translatePageElements) translatePageElements();
 }
 
 /**
@@ -255,51 +258,45 @@ async function loadOrderHistory() {
 
     const currentUser = getCurrentUser();
     if (!currentUser) {
-        orderHistoryContainer.innerHTML = '<p class="text-sm text-brand-warm-taupe italic">Veuillez vous connecter pour voir votre historique.</p>';
+        orderHistoryContainer.innerHTML = `<p class="text-sm text-brand-warm-taupe italic">${t('Veuillez_vous_connecter_pour_voir_votre_historique')}</p>`; // i18n
         return;
     }
 
-    orderHistoryContainer.innerHTML = '<p class="text-sm text-brand-warm-taupe italic">Chargement de l\'historique des commandes...</p>';
+    orderHistoryContainer.innerHTML = `<p class="text-sm text-brand-warm-taupe italic">${t('Chargement_de_lhistorique_des_commandes')}</p>`; // i18n
     try {
-        // TODO: Replace with actual API call when endpoint is available
-        // const ordersData = await makeApiRequest('/orders/history', 'GET', null, true);
-        
-        // Mockup for now, as /api/orders/history is not implemented in backend
-        await new Promise(resolve => setTimeout(resolve, 500)); // Simulate network delay
-        const ordersData = { success: true, orders: [] }; // Mockup: empty orders
+        const ordersData = await makeApiRequest('/orders/history', 'GET', null, true); // makeApiRequest sends lang
 
         if (ordersData.success && ordersData.orders.length > 0) {
             let html = '<ul class="space-y-4">';
             ordersData.orders.forEach(order => {
+                // Assuming order.status is a key that can be translated if needed, or backend sends localized status
                 html += `
                     <li class="p-4 border border-brand-warm-taupe/50 rounded-md bg-white">
                         <div class="flex justify-between items-center mb-2">
-                            <p class="font-semibold text-brand-near-black">Commande #${order.orderId || order.id}</p>
-                            <span class="px-2 py-1 text-xs font-semibold rounded-full ${getOrderStatusClass(order.status)}">${order.status}</span>
+                            <p class="font-semibold text-brand-near-black">${t('Commande_')} #${order.order_id || order.id}</p>
+                            <span class="px-2 py-1 text-xs font-semibold rounded-full ${getOrderStatusClass(order.status)}">${t(order.status) || order.status}</span>
                         </div>
-                        <p class="text-sm"><strong>Date:</strong> ${new Date(order.date || order.order_date).toLocaleDateString('fr-FR')}</p>
-                        <p class="text-sm"><strong>Total:</strong> ${parseFloat(order.totalAmount || order.total_amount).toFixed(2)} €</p>
-                        <button class="text-sm text-brand-classic-gold hover:underline mt-2" onclick="viewOrderDetail('${order.orderId || order.id}')">Voir détails</button>
+                        <p class="text-sm"><strong>${t('Date')}:</strong> ${new Date(order.order_date).toLocaleDateString(getCurrentLang())}</p>
+                        <p class="text-sm"><strong>${t('Total')}:</strong> ${parseFloat(order.total_amount).toFixed(2)} €</p>
+                        <button class="text-sm text-brand-classic-gold hover:underline mt-2" onclick="viewOrderDetail('${order.order_id || order.id}')" data-translate-key="Voir_details">${t('Voir_details')}</button>
                     </li>
-                `;
+                `; // Add Commande_, Date, Total, Voir_details to locales
             });
             html += '</ul>';
             orderHistoryContainer.innerHTML = html;
         } else {
-            orderHistoryContainer.innerHTML = '<p class="text-sm text-brand-warm-taupe italic">Vous n\'avez aucune commande pour le moment.</p>';
+            orderHistoryContainer.innerHTML = `<p class="text-sm text-brand-warm-taupe italic">${t('Vous_navez_aucune_commande_pour_le_moment')}</p>`; // i18n
         }
     } catch (error) {
-        orderHistoryContainer.innerHTML = `<p class="text-sm text-brand-truffle-burgundy italic">Impossible de charger l'historique des commandes: ${error.message}</p>`;
+        orderHistoryContainer.innerHTML = `<p class="text-sm text-brand-truffle-burgundy italic">${t('Impossible_de_charger_lhistorique_des_commandes')} ${error.message}</p>`; // i18n
     }
 }
 
 /**
  * Placeholder function to view order details.
- * This would typically open a modal or navigate to an order detail page.
- * @param {string} orderId - The ID of the order to view.
+ * @param {string} orderId - The ID of the order.
  */
 function viewOrderDetail(orderId) {
-    // Implementation for viewing order details (e.g., open a modal, redirect)
-    showGlobalMessage(`Détail de la commande #${orderId} (fonctionnalité à implémenter).`, 'info');
+    showGlobalMessage(`${t('Detail_commande_')} #${orderId} (${t('Fonctionnalite_a_implementer')}).`, 'info'); // i18n
     console.log("Voir détails pour commande:", orderId);
 }
