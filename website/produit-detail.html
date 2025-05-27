@@ -6,192 +6,187 @@
     <title>Détail Produit - Maison Trüvra</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="productDetail.pageTitleDefault">Détail Produit - Maison Trüvra</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
     <script>
         tailwind.config = {
             theme: {
                 extend: {
                     colors: {
-                        'brand-cream': '#F5EEDE',
-                        'brand-near-black': '#11120D',
-                        'brand-classic-gold': '#D4AF37',
-                        'brand-warm-taupe': '#A28C6A',
-                        'brand-earth-brown': '#7D6A4F',
-                        'brand-slate-blue-grey': '#6E7582',
-                        'brand-deep-sage-green': '#4B5A59',
-                        'brand-truffle-burgundy': '#8A3E3E',
-                    }
+                        'brand-primary': '#4A3B31',
+                        'brand-secondary': '#8C6B5D',
+                        'brand-accent': '#D4AF37',
+                        'brand-light': '#F5F0E6',
+                        'brand-dark-taupe': '#5A5A5A',
+                    },
+                    fontFamily: {
+                        serif: ['Georgia', 'Times New Roman', 'serif'],
+                        sans: ['Inter', 'Arial', 'sans-serif'],
+                    },
                 }
             }
         }
     </script>
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #F5EEDE; 
-            color: #7D6A4F; 
+        /* Ensure star rating input looks good */
+        .star-rating input[type="radio"] { display: none; }
+        .star-rating label {
+            font-size: 1.8em; /* Make stars larger */
+            color: #ddd; /* Default star color */
+            cursor: pointer;
+            padding: 0 0.1em; /* Spacing between stars */
         }
-        h1, h2, h3, .font-serif {
-            font-family: 'Playfair Display', serif;
+        /* Style stars on hover and when selected */
+        .star-rating input[type="radio"]:checked ~ label,
+        .star-rating label:hover,
+        .star-rating label:hover ~ label {
+            color: #D4AF37; /* Gold color for selected/hovered stars */
         }
-        .btn-primary {
-            background-color: #7D6A4F; color: #F5EEDE; padding: 0.85rem 1.75rem; 
-            border-radius: 0.375rem; transition: background-color 0.3s ease, transform 0.2s ease;
-            font-weight: 500; letter-spacing: 0.025em; display: inline-block; cursor: pointer;
+        /* Reverse the order of stars for intuitive selection (click rightmost star for 5) */
+        .star-rating {
+            display: inline-block;
+            unicode-bidi: bidi-override;
+            direction: rtl;
         }
-        .btn-primary:hover { background-color: #11120D; transform: translateY(-2px); }
-        .btn-secondary {
-            background-color: #A28C6A; color: #F5EEDE; padding: 0.75rem 1.5rem;
-            border-radius: 0.375rem; transition: background-color 0.3s ease, transform 0.2s ease;
-            font-weight: 500; display: inline-block; cursor: pointer;
-        }
-        .btn-secondary:hover { background-color: #7D6A4F; transform: translateY(-1px); }
-         .btn-gold {
-            background-color: #D4AF37; color: #11120D; padding: 0.85rem 1.75rem;
-            border-radius: 0.375rem; transition: background-color 0.3s ease, opacity 0.3s ease, transform 0.2s ease;
-            font-weight: 600; display: inline-block; cursor: pointer;
-        }
-        .btn-gold:hover { background-color: #D4AF37; opacity: 0.85; transform: translateY(-2px); }
-        .form-input-checkout { @apply w-full px-4 py-3 text-brand-near-black bg-white border border-brand-warm-taupe/50 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-classic-gold shadow-sm; }
-        .quantity-input-controls button { @apply px-2 py-0.5 border border-brand-warm-taupe/50 text-brand-near-black hover:bg-brand-warm-taupe/20 text-sm; }
-        .quantity-input { @apply w-10 sm:w-12 text-center border-y border-brand-warm-taupe/50 py-1 text-sm appearance-none; }
-        .page-header { @apply text-3xl md:text-4xl font-serif text-brand-near-black mb-8 text-center py-8 bg-white shadow-sm; }
-        .modal-overlay { @apply fixed inset-0 bg-brand-near-black bg-opacity-75 flex items-center justify-center p-4 z-50 transition-opacity duration-300 opacity-0 pointer-events-none; }
-        .modal-overlay.active { @apply opacity-100 pointer-events-auto; }
-        .modal-content { @apply bg-brand-cream p-6 sm:p-8 rounded-lg shadow-2xl w-full max-w-md transform scale-95 transition-transform duration-300; }
-        .modal-overlay.active .modal-content { @apply scale-100; }
-        .modal-message { @apply fixed bottom-5 right-5 bg-brand-deep-sage-green text-brand-cream p-4 rounded-lg shadow-xl z-[100] transition-all duration-500 ease-out opacity-0 translate-y-10; }
-        .modal-message.show { @apply opacity-100 translate-y-0; }
+        .star-rating label:hover ~ label { color: #ddd; } /* Keep unhovered preceding stars default */
+        .star-rating input[type="radio"]:checked ~ label { color: #D4AF37; } /* Keep selected stars gold */
+
     </style>
 </head>
-<body id="page-produit-detail" class="antialiased bg-white"> 
-    
+<body class="bg-brand-light font-sans text-brand-dark-taupe">
+
     <div id="header-placeholder"></div>
 
-    <main class="bg-white"> 
-        <section id="product-detail-section" class="py-12">
-            <div class="container mx-auto px-4 sm:px-6 lg:px-8">
-                <div class="mb-6">
-                    <a href="nos-produits.html" class="text-brand-warm-taupe hover:text-brand-near-black text-sm">&larr; Retour au catalogue</a>
-                </div>
-                <div id="product-detail-content" class="grid grid-cols-1 md:grid-cols-2 gap-10 items-start" style="display:none;">
-                    <div>
-                        <img id="main-product-image" src="https://placehold.co/600x500/7D6A4F/F5EEDE?text=Produit" alt="Image produit principal" class="w-full h-auto object-cover rounded-lg shadow-lg mb-4">
-                        <div id="product-thumbnail-gallery" class="grid grid-cols-4 gap-2">
-                            </div>
+    <main class="container mx-auto px-4 py-8 mt-16">
+        <div id="loading-product-detail" class="text-center py-20">
+            <i class="fas fa-spinner fa-spin text-4xl text-brand-primary"></i>
+            <p class="mt-3 text-lg" data-i18n="productDetail.loading">Chargement du produit...</p>
+        </div>
+
+        <div id="product-detail-container" class="hidden">
+            <div class="grid md:grid-cols-2 gap-8 lg:gap-12 items-start">
+                <div class="bg-white p-4 rounded-lg shadow-md">
+                    <img id="product-image" src="https://placehold.co/600x400/F5F0E6/4A3B31?text=Produit" alt="Product Image" class="w-full h-auto max-h-[500px] object-contain rounded">
                     </div>
 
-                    <div class="text-brand-earth-brown">
-                        <h1 id="product-name" class="text-3xl md:text-4xl font-serif text-brand-near-black mb-3">Chargement...</h1>
-                        <p id="product-short-description" class="text-lg text-brand-deep-sage-green mb-6"></p>
-                        
-                        <div class="mb-6">
-                            <span id="product-price-display" class="text-3xl font-bold text-brand-truffle-burgundy">--,-- €</span>
-                            <span id="product-price-unit" class="text-sm text-brand-warm-taupe ml-2"></span>
+                <div class="space-y-6">
+                    <h1 id="product-name" class="text-3xl lg:text-4xl font-serif text-brand-primary">Nom du Produit</h1>
+                    <p id="product-short-description" class="text-lg text-brand-dark-taupe">Courte description du produit.</p>
+                    
+                    <div id="product-weight-selector" class="my-4">
                         </div>
 
-                        <div id="weight-options-container" class="mb-6 hidden">
-                            <label for="weight-options-select" class="block text-sm font-medium text-brand-near-black mb-1">Poids :</label>
-                            <select id="weight-options-select" name="weight-options" class="form-input-checkout w-full sm:w-1/2">
-                                </select>
-                        </div>
+                    <p id="product-price" class="text-3xl font-semibold text-brand-accent">€0.00</p>
 
-                        <div class="mb-8" id="quantity-select-controls"> <label for="quantity-select" class="block text-sm font-medium text-brand-near-black mb-1">Quantité :</label>
-                            <div class="flex items-center quantity-input-controls">
-                                <button class="rounded-l">-</button> <input type="number" id="quantity-select" name="quantity" value="1" min="1" max="10" class="quantity-input" readonly>
-                                <button class="rounded-r">+</button> </div>
-                        </div>
+                    <div class="flex items-center space-x-3">
+                        <label for="quantity-input" class="text-sm font-medium text-brand-dark-taupe" data-i18n="productDetail.quantity">Quantité:</label>
+                        <input type="number" id="quantity-input" value="1" min="1" class="w-20 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-primary focus:border-brand-primary">
+                    </div>
 
-                        <button id="add-to-cart-button" class="btn-gold w-full text-lg py-3.5 mb-6">
-                            Ajouter au Panier
-                        </button>
+                    <button id="add-to-cart-button" class="w-full bg-brand-primary hover:bg-brand-secondary text-white font-bold py-3 px-6 rounded-lg transition duration-150 text-lg flex items-center justify-center">
+                        <i class="fas fa-cart-plus mr-2"></i> <span data-i18n="productDetail.addToCart">Ajouter au Panier</span>
+                    </button>
 
-                        <div class="space-y-3 text-sm mb-6">
-                            <p><strong class="text-brand-near-black">Espèce :</strong> <span id="product-species">N/A</span></p>
-                            <p><strong class="text-brand-near-black">Origine :</strong> <span id="product-origin">N/A</span></p>
-                            <p><strong class="text-brand-near-black">Saisonnalité :</strong> <span id="product-seasonality">N/A</span></p>
-                            <p><strong class="text-brand-near-black">Utilisations idéales :</strong> <span id="product-uses">N/A</span></p>
-                        </div>
-                        
-                        <div class="mt-8 pt-6 border-t border-brand-warm-taupe/30">
-                            <h3 class="text-xl font-serif text-brand-near-black mb-3">Description Sensorielle</h3>
-                            <p id="product-sensory-description" class="leading-relaxed">Description sensorielle à venir...</p>
-                        </div>
-
-                        <div class="mt-8 pt-6 border-t border-brand-warm-taupe/30">
-                            <h3 class="text-xl font-serif text-brand-near-black mb-3">Suggestions d'Accords</h3>
-                            <p id="product-pairing-suggestions" class="leading-relaxed">Suggestions d'accords à venir...</p>
-                        </div>
-
-                        <div id="product-reviews-container" class="mt-10 pt-6 border-t border-brand-warm-taupe/30">
-                            <h3 class="text-xl font-serif text-brand-near-black mb-4" data-translate-key="Avis_Clients">Avis Clients</h3>
-                            <div id="reviews-list" class="space-y-4 mb-6">
-                                <p class="text-sm text-brand-warm-taupe italic" data-translate-key="Chargement_avis">Chargement des avis...</p>
-                            </div>
-                            <form id="submit-review-form" style="display:none;" class="mt-6 p-4 border border-brand-warm-taupe/50 rounded-md">
-                                <h4 class="text-lg font-semibold text-brand-near-black mb-3" data-translate-key="Laisser_un_avis">Laisser un avis</h4>
-                                <div class="mb-3">
-                                    <label for="review-rating" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Votre_note">Votre note (sur 5)</label>
-                                    <select id="review-rating" name="rating" class="form-input-checkout w-full sm:w-1/2">
-                                        <option value="5">5 - Excellent</option>
-                                        <option value="4">4 - Très bien</option>
-                                        <option value="3">3 - Moyen</option>
-                                        <option value="2">2 - Pas mal</option>
-                                        <option value="1">1 - Décevant</option>
-                                    </select>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="review-comment" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Votre_commentaire">Votre commentaire (optionnel)</label>
-                                    <textarea id="review-comment" name="comment_text" rows="3" class="form-textarea-checkout w-full"></textarea>
-                                </div>
-                                <button type="submit" class="btn-primary" data-translate-key="Soumettre_avis">Soumettre l'avis</button>
-                                <div id="review-form-message" class="text-sm mt-2"></div>
-                            </form>
-                            <p id="review-login-prompt" class="text-sm mt-4" style="display:none;">
-                                <a href="compte.html" class="text-brand-classic-gold hover:underline" data-translate-key="Connectez_vous_pour_laisser_avis">Connectez-vous</a> pour laisser un avis.
-                            </p>
-                        </div>
-
-                        
-                         <div class="mt-10 pt-6 border-t border-brand-warm-taupe/30">
-                            <h3 class="text-xl font-serif text-brand-near-black mb-4">Avis Clients</h3>
-                            <p id="product-reviews" class="text-sm text-brand-warm-taupe italic">Aucun avis pour le moment. Soyez le premier à partager votre expérience !</p>
+                    <div class="mt-8 pt-6 border-t border-gray-200">
+                        <h2 class="text-xl font-serif text-brand-primary mb-3" data-i18n="productDetail.descriptionTitle">Description</h2>
+                        <div id="product-long-description" class="prose max-w-none text-brand-dark-taupe">
+                            Description longue et détaillée du produit.
                         </div>
                     </div>
                 </div>
-                <div id="product-detail-loading" class="text-center py-10 text-brand-earth-brown">Chargement des détails du produit...</div>
             </div>
-        </section>
+
+            <section id="reviews-section" class="mt-12 pt-8 border-t border-gray-300">
+                <h2 class="text-2xl font-serif text-brand-primary mb-6" data-i18n="productDetail.reviewsTitle">Avis des Clients</h2>
+                
+                <div id="product-reviews-list" class="space-y-6 mb-8">
+                    <p class="text-sm text-gray-500" data-i18n="productDetail.loadingReviews">Chargement des avis...</p>
+                </div>
+
+                <div id="login-to-review-message" class="hidden p-4 bg-yellow-100 border border-yellow-300 text-yellow-700 rounded-md">
+                    <p><span data-i18n="productDetail.pleaseLoginToReview">Veuillez vous</span> <a href="compte.html" class="font-semibold underline hover:text-yellow-800" data-i18n="productDetail.loginLinkText">connecter</a> <span data-i18n="productDetail.or">ou</span> <a href="compte.html#register" class="font-semibold underline hover:text-yellow-800" data-i18n="productDetail.registerLinkText">créer un compte</a> <span data-i18n="productDetail.toSubmitReview">pour laisser un avis.</span></p>
+                </div>
+
+                <div id="review-submission-form" class="bg-white p-6 rounded-lg shadow-md hidden">
+                    <h3 class="text-xl font-serif text-brand-primary mb-4" data-i18n="productDetail.leaveReviewTitle">Laisser un Avis</h3>
+                    <form id="review-form" class="space-y-4">
+                        <div>
+                            <label for="review-rating" class="block text-sm font-medium text-brand-dark-taupe" data-i18n="productDetail.yourRating">Votre Note</label>
+                            <div class="star-rating mt-1">
+                                <input type="radio" id="star5" name="rating" value="5" required/><label for="star5" title="5 stars">★</label>
+                                <input type="radio" id="star4" name="rating" value="4" /><label for="star4" title="4 stars">★</label>
+                                <input type="radio" id="star3" name="rating" value="3" /><label for="star3" title="3 stars">★</label>
+                                <input type="radio" id="star2" name="rating" value="2" /><label for="star2" title="2 stars">★</label>
+                                <input type="radio" id="star1" name="rating" value="1" /><label for="star1" title="1 star">★</label>
+                            </div>
+                        </div>
+                        <div>
+                            <label for="review-comment" class="block text-sm font-medium text-brand-dark-taupe" data-i18n="productDetail.yourComment">Votre Commentaire</label>
+                            <textarea id="review-comment" name="comment" rows="4" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-primary focus:border-brand-primary sm:text-sm" placeholder_i18n="productDetail.commentPlaceholder"></textarea>
+                        </div>
+                        <button type="submit" class="bg-brand-accent hover:opacity-90 text-brand-primary font-semibold py-2 px-4 rounded-md transition duration-150" data-i18n="productDetail.submitReview">Envoyer l'Avis</button>
+                        <div id="review-form-message" class="mt-2 text-sm"></div>
+                    </form>
+                </div>
+            </section>
+        </div>
     </main>
 
     <div id="footer-placeholder"></div>
 
-    <div id="global-message-toast" class="modal-message">
+    <div id="global-message" class="hidden fixed bottom-5 right-5 bg-brand-primary text-white p-4 rounded-lg shadow-md z-50">
         <p id="global-message-text"></p>
-    </div>
-
-    <div id="add-to-cart-modal" class="modal-overlay">
-        <div class="modal-content text-center">
-            <h3 id="modal-product-name" class="text-xl font-serif text-brand-near-black mb-4">Produit ajouté au panier !</h3>
-            <p class="text-brand-earth-brown mb-6">Votre sélection a bien été ajoutée.</p>
-            <div class="flex flex-col space-y-3 sm:flex-row sm:space-y-0 sm:space-x-4 justify-center mt-2">
-                <button onclick="closeModal('add-to-cart-modal'); window.location.href='nos-produits.html';" class="btn-secondary w-full sm:w-auto">Continuer mes achats</button>
-                <button onclick="closeModal('add-to-cart-modal'); window.location.href='panier.html';" class="btn-gold w-full sm:w-auto">Voir le panier</button>
-            </div>
-        </div>
+        <button id="close-global-message" class="ml-4 text-xl">&times;</button>
     </div>
 
     <script src="js/config.js"></script>
-    <script src="js/i18n.js"></script>
-    <script src="js/ui.js"></script>
     <script src="js/api.js"></script>
-    <script src="js/auth.js"></script>
-    <script src="js/cart.js"></script>
-    <script src="js/product.js"></script>
-    <script src="js/checkout.js"></script>
-    <script src="js/newsletter.js"></script>
-    <script src="js/main.js"></script>
+    <script src="js/auth.js"></script> <script src="js/cart.js"></script> <script src="js/ui.js"></script>
+    <script src="js/i18n.js"></script>
+    <script src="js/products.js"></script> <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const headerResponse = await fetch('header.html');
+                const headerHtml = await headerResponse.text();
+                document.getElementById('header-placeholder').innerHTML = headerHtml;
+
+                const footerResponse = await fetch('footer.html');
+                const footerHtml = await footerResponse.text();
+                document.getElementById('footer-placeholder').innerHTML = footerHtml;
+                
+                if (window.initializeI18n) {
+                    await window.initializeI18n();
+                    // After i18n is ready, product details can be loaded
+                    // which might depend on translated strings being ready for display.
+                    // The product.js already has its DOMContentLoaded listener,
+                    // ensure i18n is done before that or product.js handles it.
+                    // For simplicity, product.js `loadProductDetail` should be robust
+                    // to i18n being initialized.
+                }
+                 // Init cart icon (from ui.js) and language switcher
+                if (window.initCartIcon) initCartIcon();
+                if (window.setupLanguageSwitcher) setupLanguageSwitcher();
+            } catch (error) {
+                console.error("Error loading header/footer:", error);
+            }
+
+             // Global message close button
+            const closeGlobalMessageBtn = document.getElementById('close-global-message');
+            if(closeGlobalMessageBtn) {
+                closeGlobalMessageBtn.addEventListener('click', () => {
+                    document.getElementById('global-message').classList.add('hidden');
+                });
+            }
+
+            // The product detail loading is handled by products.js's own DOMContentLoaded listener
+        });
+    </script>
 </body>
 </html>
-
