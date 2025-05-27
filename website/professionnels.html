@@ -50,15 +50,33 @@
                                 <label for="pro-login-email" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Adresse_e-mail">Adresse e-mail</label>
                                 <input type="email" id="pro-login-email" name="email" class="form-input-pro" required autocomplete="email">
                             </div>
+
                             <div>
                                 <label for="pro-login-password" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Mot_de_passe">Mot de passe</label>
                                 <input type="password" id="pro-login-password" name="password" class="form-input-pro" required>
                                 <a href="#" id="pro-forgot-password-link" class="text-xs text-brand-warm-taupe hover:text-brand-classic-gold block mt-1 text-right" data-translate-key="Mot_de_passe_oublie">Mot de passe oublié ?</a>
                             </div>
                             <button type="submit" class="btn-primary w-full py-3" data-translate-key="Se_connecter">Se connecter</button>
-                        </form>
-                    </div>
-
+                            
+                            <div id="forgot-password-modal" class="modal-overlay" style="display:none;">
+                                <div class="modal-content text-left max-w-md">
+                                    <h3 class="text-xl font-serif text-brand-near-black mb-4" data-translate-key="Pro_Reinitialiser_Mot_De_Passe_Titre">Réinitialiser le mot de passe</h3>
+                                    <form id="pro-forgot-password-form" class="space-y-4">
+                                        <p class="text-sm text-brand-earth-brown" data-translate-key="Pro_Instructions_Mot_De_Passe_Oublie">
+                                            Veuillez entrer votre adresse e-mail. Si un compte correspondant existe, nous vous enverrons (théoriquement) un lien pour réinitialiser votre mot de passe.
+                                        </p>
+                                        <div id="pro-forgot-password-message" class="text-sm my-2"></div>
+                                        <div>
+                                            <label for="pro-forgot-email" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Adresse_e-mail">Adresse e-mail</label>
+                                            <input type="email" id="pro-forgot-email" name="email" class="form-input-pro" required>
+                                        </div>
+                                        <div class="flex justify-end space-x-3 pt-3">
+                                            <button type="button" id="pro-cancel-forgot-password" class="btn-secondary text-sm" data-translate-key="Annuler">Annuler</button>
+                                            <button type="submit" class="btn-primary text-sm" data-translate-key="Pro_Envoyer_Lien_Reinitialisation">Envoyer le lien</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
                     <div class="bg-white shadow-xl rounded-lg p-8">
                         <h2 class="text-2xl font-serif text-brand-near-black mb-5" data-translate-key="Pro_Nouveau_client_Creer_compte">Nouveau Professionnel ? Créez un compte</h2>
                         <form id="pro-register-form" class="space-y-5">
