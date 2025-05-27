@@ -7,6 +7,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const email = urlParams.get('email');
 
     const tokenField = document.getElementById('reset-token');
+    const emailField = document.getElementById('reset-email');// website/js/reset-password.js
+
+document.addEventListener('DOMContentLoaded', () => {
+    const resetPasswordForm = document.getElementById('reset-password-form');
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    const email = urlParams.get('email');
+
+    const tokenField = document.getElementById('reset-token');
     const emailField = document.getElementById('reset-email');
 
     if (tokenField) tokenField.value = token || '';
