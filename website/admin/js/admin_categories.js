@@ -1,275 +1,254 @@
-// website/admin/js/admin_categories.js
+// File: website/admin/js/admin_categories.js
 document.addEventListener('DOMContentLoaded', () => {
-    const categoriesTableBody = document.getElementById('categoriesTableBody');
+    if (typeof ensureAdminAuthenticated === 'function' && !ensureAdminAuthenticated()) { return; }
+
     const addCategoryBtn = document.getElementById('addCategoryBtn');
     const categoryModal = document.getElementById('categoryModal');
-    const closeModalBtn = document.getElementById('closeModalBtn');
+    const closeModalBtn = categoryModal ? categoryModal.querySelector('#closeModalBtn') : null;
+    const cancelModalBtn = categoryModal ? categoryModal.querySelector('#cancelModalBtn') : null;
     const categoryForm = document.getElementById('categoryForm');
-    const modalTitle = document.getElementById('modalTitle');
-    const categoryIdField = document.getElementById('categoryId');
-    const formError = document.getElementById('formError');
-    const formImagePreview = document.getElementById('formImagePreview');
-    const imageUrlInput = document.getElementById('image_url');
+    const modalTitle = categoryModal ? categoryModal.querySelector('#modalTitle') : null;
+    const categoriesTableBody = document.getElementById('categoriesTableBody');
+    const saveCategoryBtn = document.getElementById('saveCategoryBtn');
+    const formMessageContainer = categoryModal ? categoryModal.querySelector('#formMessage') : null;
 
-    const deleteConfirmModal = document.getElementById('deleteConfirmModal');
-    const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
-    const cancelDeleteBtn = document.getElementById('cancelDeleteBtn');
-    const categoryNameToDelete = document.getElementById('categoryNameToDelete');
-    const deleteError = document.getElementById('deleteError');
-    
-    const categoriesLoading = document.getElementById('categories-loading');
-    const categoriesError = document.getElementById('categories-error');
-    const noCategoriesMessage = document.getElementById('no-categories-message');
+    let editingCategoryId = null;
 
-    let currentEditingCategoryId = null;
-    let categoryToDeleteId = null;
-
-    const API_BASE_URL = '/admin/api'; // Make sure this matches your Flask app's base URL for admin API
-
-    // Toast notification elements
-    const toast = document.getElementById('toast-notification');
-    const toastMessage = document.getElementById('toast-message');
-
-    function showToast(message, isError = false) {
-        toastMessage.textContent = message;
-        toast.classList.remove('hidden', 'bg-green-500', 'bg-red-500');
-        if (isError) {
-            toast.classList.add('bg-red-500');
-        } else {
-            toast.classList.add('bg-green-500');
-        }
-        toast.classList.add('opacity-100');
-        setTimeout(() => {
-            toast.classList.add('opacity-0');
-            setTimeout(()_ => toast.classList.add('hidden'), 300); // wait for fade out
-        }, 3000);
-    }
-
-
-    // --- Modal Handling ---
-    function openModal(isEdit = false, category = null) {
-        formError.textContent = '';
-        formError.classList.add('hidden');
+    const openModal = (isEdit = false, category = null) => {
+        if (!categoryModal || !categoryForm || !modalTitle || !saveCategoryBtn) return;
+        clearFormMessage();
         categoryForm.reset();
-        formImagePreview.classList.add('hidden');
-        formImagePreview.src = '#';
+        saveCategoryBtn.disabled = false;
+        saveCategoryBtn.innerHTML = '<i class="fas fa-save mr-2"></i>Save Category';
 
         if (isEdit && category) {
-            modalTitle.textContent = 'Modifier la Catégorie';
-            categoryIdField.value = category.id;
-            document.getElementById('name_fr').value = category.name_fr || '';
-            document.getElementById('name_en').value = category.name_en || '';
-            document.getElementById('description_fr').value = category.description_fr || '';
-            document.getElementById('description_en').value = category.description_en || '';
-            document.getElementById('slug').value = category.slug || '';
-            imageUrlInput.value = category.image_url || '';
-            if (category.image_url) {
-                formImagePreview.src = category.image_url;
-                formImagePreview.classList.remove('hidden');
-            }
-            currentEditingCategoryId = category.id;
+            modalTitle.textContent = 'Edit Category';
+            editingCategoryId = category.id;
+            document.getElementById('categoryId').value = category.id;
+            document.getElementById('categoryName').value = category.name;
+            document.getElementById('categoryDescription').value = category.description || '';
         } else {
-            modalTitle.textContent = 'Ajouter une Catégorie';
-            categoryIdField.value = '';
-            currentEditingCategoryId = null;
+            modalTitle.textContent = 'Add New Category';
+            editingCategoryId = null;
+            if(document.getElementById('categoryId')) document.getElementById('categoryId').value = '';
         }
-        categoryModal.classList.add('active');
-    }
-
-    function closeModal() {
-        categoryModal.classList.remove('active');
-        categoryForm.reset();
-        formImagePreview.classList.add('hidden');
-        formImagePreview.src = '#';
-    }
-
-    function openDeleteModal(categoryId, categoryName) {
-        deleteError.textContent = '';
-        deleteError.classList.add('hidden');
-        categoryNameToDelete.textContent = categoryName;
-        categoryToDeleteId = categoryId;
-        deleteConfirmModal.classList.add('active');
-    }
-
-    function closeDeleteModal() {
-        deleteConfirmModal.classList.remove('active');
-        categoryToDeleteId = null;
-    }
-
-    addCategoryBtn.addEventListener('click', () => openModal());
-    closeModalBtn.addEventListener('click', closeModal);
-    cancelDeleteBtn.addEventListener('click', closeDeleteModal);
-    
-    // Close modal if backdrop is clicked
-    categoryModal.addEventListener('click', (event) => {
-        if (event.target === categoryModal) {
-            closeModal();
-        }
-    });
-    deleteConfirmModal.addEventListener('click', (event) => {
-        if (event.target === deleteConfirmModal) {
-            closeDeleteModal();
-        }
-    });
-
-
-    imageUrlInput.addEventListener('input', (event) => {
-        const url = event.target.value;
-        if (url) {
-            formImagePreview.src = url;
-            formImagePreview.classList.remove('hidden');
-        } else {
-            formImagePreview.classList.add('hidden');
-            formImagePreview.src = '#';
-        }
-    });
-    formImagePreview.onerror = () => {
-        formImagePreview.classList.add('hidden');
-        // Optionally show a placeholder or error for bad image URLs
+        categoryModal.classList.remove('opacity-0', 'pointer-events-none');
+        categoryModal.classList.add('opacity-100');
+        document.body.classList.add('modal-active');
     };
 
+    const closeModal = () => {
+        if (!categoryModal) return;
+        categoryModal.classList.add('opacity-0');
+        categoryModal.classList.remove('opacity-100');
+        setTimeout(() => {
+            categoryModal.classList.add('pointer-events-none');
+            document.body.classList.remove('modal-active');
+        }, 250);
+    };
 
-    // --- API Calls ---
-    async function fetchCategories() {
-        categoriesLoading.style.display = 'block';
-        categoriesError.classList.add('hidden');
-        noCategoriesMessage.classList.add('hidden');
-        categoriesTableBody.innerHTML = ''; // Clear existing rows
-
-        try {
-            // Using per_page=0 to get all categories, as pagination for categories is not implemented yet on frontend
-            const response = await adminApi.get('/categories?per_page=0'); 
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ detail: 'Erreur inconnue' }));
-                throw new Error(`Erreur ${response.status}: ${errorData.error || errorData.detail}`);
-            }
-            const data = await response.json();
-            categoriesLoading.style.display = 'none';
-            if (data.categories && data.categories.length > 0) {
-                renderCategories(data.categories);
-            } else {
-                noCategoriesMessage.classList.remove('hidden');
-            }
-            // Implement pagination display if using it
-        } catch (error) {
-            console.error('Erreur lors de la récupération des catégories:', error);
-            categoriesLoading.style.display = 'none';
-            categoriesError.textContent = `Impossible de charger les catégories: ${error.message}`;
-            categoriesError.classList.remove('hidden');
-            showToast(`Erreur: ${error.message}`, true);
-        }
-    }
-
-    async function saveCategory(event) {
-        event.preventDefault();
-        formError.textContent = '';
-        formError.classList.add('hidden');
-
-        const formData = new FormData(categoryForm);
-        const categoryData = {
-            name_fr: formData.get('name_fr'),
-            name_en: formData.get('name_en'),
-            description_fr: formData.get('description_fr'),
-            description_en: formData.get('description_en'),
-            slug: formData.get('slug') || null, // Send null if empty, backend will generate
-            image_url: formData.get('image_url')
-        };
-
-        const categoryId = formData.get('categoryId');
-        const method = categoryId ? 'PUT' : 'POST';
-        const url = categoryId ? `/categories/${categoryId}` : '/categories';
-
-        try {
-            const response = await adminApi.request(url, method, categoryData);
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ detail: 'Erreur inconnue' }));
-                throw new Error(`Erreur ${response.status}: ${errorData.error || errorData.detail}`);
-            }
-            const result = await response.json();
-            showToast(result.message || (categoryId ? 'Catégorie mise à jour avec succès!' : 'Catégorie créée avec succès!'));
+    if (addCategoryBtn) addCategoryBtn.addEventListener('click', () => openModal());
+    if (closeModalBtn) closeModalBtn.addEventListener('click', closeModal);
+    if (cancelModalBtn) cancelModalBtn.addEventListener('click', closeModal);
+    window.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && categoryModal && !categoryModal.classList.contains('pointer-events-none')) {
             closeModal();
-            fetchCategories(); // Refresh the list
-        } catch (error) {
-            console.error('Erreur lors de l_enregistrement de la catégorie:', error);
-            formError.textContent = error.message;
-            formError.classList.remove('hidden');
-            showToast(`Erreur: ${error.message}`, true);
         }
-    }
+    });
 
-    async function deleteCategory() {
-        if (!categoryToDeleteId) return;
-        deleteError.textContent = '';
-        deleteError.classList.add('hidden');
 
-        try {
-            const response = await adminApi.delete(`/categories/${categoryToDeleteId}`);
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ detail: 'Erreur inconnue' }));
-                throw new Error(`Erreur ${response.status}: ${errorData.error || errorData.detail}`);
-            }
-            const result = await response.json();
-            showToast(result.message || 'Catégorie supprimée avec succès!');
-            closeDeleteModal();
-            fetchCategories(); // Refresh the list
-        } catch (error) {
-            console.error('Erreur lors de la suppression de la catégorie:', error);
-            deleteError.textContent = error.message;
-            deleteError.classList.remove('hidden');
-            showToast(`Erreur: ${error.message}`, true);
-        }
-    }
-
-    // --- Rendering ---
-    function renderCategories(categories) {
-        categoriesTableBody.innerHTML = ''; // Clear previous entries
+    const renderCategories = (categories) => {
+        if (!categoriesTableBody) return;
+        categoriesTableBody.innerHTML = '';
         if (!categories || categories.length === 0) {
-            noCategoriesMessage.classList.remove('hidden');
+            categoriesTableBody.innerHTML = `<tr><td colspan="5" class="px-6 py-4 text-center text-sm text-gray-500">No categories found.</td></tr>`;
             return;
         }
-        noCategoriesMessage.classList.add('hidden');
-
         categories.forEach(category => {
             const row = categoriesTableBody.insertRow();
+            row.className = 'hover:bg-gray-50 transition-colors';
             row.innerHTML = `
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${category.id}</td>
-                <td class="px-6 py-4 whitespace-nowrap">
-                    ${category.image_url ? `<img src="${category.image_url}" alt="${category.name_fr || 'Category Image'}" class="image-preview" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';"> <span style="display:none;">N/A</span>` : '<span>N/A</span>'}
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${category.name_fr || 'N/A'}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${category.name_en || 'N/A'}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${category.slug || 'N/A'}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    <a href="admin_manage_products.html?category_id=${category.id}" class="text-blue-600 hover:text-blue-800">Voir produits</a>
-                    </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <button class="edit-button" data-id="${category.id}"><i class="fas fa-edit"></i> Modifier</button>
-                    <button class="delete-button ml-2" data-id="${category.id}" data-name="${category.name_fr || 'cette catégorie'}"><i class="fas fa-trash"></i> Supprimer</button>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${category.id}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${category.name}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 max-w-xs truncate" title="${category.description || ''}">${category.description || 'N/A'}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${category.product_count === undefined ? 'N/A' : category.product_count}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
+                    <button class="edit-btn text-indigo-600 hover:text-indigo-800 p-1 rounded hover:bg-indigo-100" data-id="${category.id}" title="Edit ${category.name}"><i class="fas fa-pencil-alt fa-fw"></i></button>
+                    <button class="delete-btn text-red-600 hover:text-red-800 p-1 rounded hover:bg-red-100" data-id="${category.id}" title="Delete ${category.name}"><i class="fas fa-trash-alt fa-fw"></i></button>
                 </td>
             `;
-            // Add event listeners for edit and delete buttons
-            row.querySelector('.edit-button').addEventListener('click', () => openModal(true, category));
-            row.querySelector('.delete-button').addEventListener('click', (e) => {
-                const id = e.currentTarget.dataset.id;
-                const name = e.currentTarget.dataset.name;
-                openDeleteModal(id, name);
-            });
+        });
+
+        document.querySelectorAll('.edit-btn').forEach(button => button.addEventListener('click', handleEditCategory));
+        document.querySelectorAll('.delete-btn').forEach(button => button.addEventListener('click', handleDeleteCategory));
+    };
+
+    const fetchAndDisplayCategories = async () => {
+        if (!categoriesTableBody) return;
+        categoriesTableBody.innerHTML = `<tr><td colspan="5" class="text-center p-4 text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>Loading categories...</td></tr>`;
+        try {
+            // Assuming API returns an array for categories or an object { categories: [] }
+            const response = await adminApi.getCategories(undefined, 1, 200); // Fetch all for now
+            let categoryList = [];
+            if (Array.isArray(response)) {
+                categoryList = response;
+            } else if (response && response.categories && Array.isArray(response.categories)) {
+                categoryList = response.categories;
+            } else if (response && response.data && Array.isArray(response.data)) { // Adapt to various possible API responses
+                categoryList = response.data;
+            }
+
+
+            renderCategories(categoryList);
+            if (categoryList.length === 0) {
+                categoriesTableBody.innerHTML = `<tr><td colspan="5" class="px-6 py-4 text-center text-sm text-gray-500">No categories created yet. Click 'Add New Category'.</td></tr>`;
+            }
+
+        } catch (error) {
+            console.error('Failed to fetch categories:', error);
+            categoriesTableBody.innerHTML = `<tr><td colspan="5" class="px-6 py-4 text-center text-sm text-red-500">Error loading categories: ${error.message}</td></tr>`;
+            if (typeof showGlobalUIMessage === 'function') showGlobalUIMessage(`Error fetching categories: ${error.message}`, 'error');
+        }
+    };
+
+    if (categoryForm) {
+        categoryForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (!saveCategoryBtn) return;
+
+            const categoryData = {
+                name: document.getElementById('categoryName').value,
+                description: document.getElementById('categoryDescription').value,
+            };
+
+            // Basic client-side validation
+            if (!categoryData.name.trim()) {
+                showFormMessage('Category name is required.', 'error');
+                document.getElementById('categoryName').focus();
+                return;
+            }
+
+            saveCategoryBtn.disabled = true;
+            saveCategoryBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Saving...';
+            clearFormMessage();
+
+            try {
+                let response;
+                if (editingCategoryId) {
+                    response = await adminApi.updateCategory(editingCategoryId, categoryData);
+                } else {
+                    response = await adminApi.addCategory(categoryData);
+                }
+
+                if (response && (response.id || (response.message && response.message.toLowerCase().includes('success')))) {
+                    if(typeof showGlobalUIMessage === 'function') showGlobalUIMessage(response.message || (editingCategoryId ? 'Category updated successfully!' : 'Category added successfully!'), 'success');
+                    fetchAndDisplayCategories();
+                    closeModal();
+                } else {
+                     // Handle specific validation errors from backend if provided
+                    if (response && response.errors) {
+                        let errorMessages = Object.values(response.errors).join('<br>');
+                        showFormMessage(`Validation failed:<br>${errorMessages}`, 'error');
+                    } else {
+                        throw new Error(response.error || 'Failed to save category.');
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to save category:', error);
+                showFormMessage(`Error: ${error.message}`, 'error');
+            } finally {
+                saveCategoryBtn.disabled = false;
+                saveCategoryBtn.innerHTML = '<i class="fas fa-save mr-2"></i>Save Category';
+            }
         });
     }
 
-    // --- Event Listeners ---
-    categoryForm.addEventListener('submit', saveCategory);
-    confirmDeleteBtn.addEventListener('click', deleteCategory);
+    const handleEditCategory = async (event) => {
+        const button = event.currentTarget;
+        const categoryId = button.dataset.id;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        button.disabled = true;
 
-    // Initial fetch
-    if (adminApi.getAuthToken()) { // Ensure token is available before fetching
-        fetchCategories();
-    } else {
-        // Handle case where token is not available, perhaps redirect to login
-        // This should ideally be handled by admin_main.js global check
-        console.warn("Token d'authentification admin non trouvé. Le chargement des catégories est annulé.");
-        categoriesLoading.style.display = 'none';
-        categoriesError.textContent = "Vous n'êtes pas authentifié. Veuillez vous reconnecter.";
-        categoriesError.classList.remove('hidden');
-    }
+        try {
+            const category = await adminApi.getCategoryById(categoryId);
+            if (category) {
+                openModal(true, category);
+            } else {
+                 if(typeof showGlobalUIMessage === 'function') showGlobalUIMessage('Could not fetch category details to edit.', 'error');
+            }
+        } catch (error) {
+            console.error('Error fetching category for edit:', error);
+             if(typeof showGlobalUIMessage === 'function') showGlobalUIMessage(`Error fetching category: ${error.message}`, 'error');
+        } finally {
+            button.innerHTML = '<i class="fas fa-pencil-alt fa-fw"></i>';
+            button.disabled = false;
+        }
+    };
+
+    const handleDeleteCategory = (event) => {
+        const button = event.currentTarget;
+        const categoryId = button.dataset.id;
+        const categoryName = button.closest('tr').querySelector('td:nth-child(2)').textContent || `Category ID ${categoryId}`;
+
+        if (typeof showConfirmModal === 'function') {
+            showConfirmModal(
+                `Delete Category: ${categoryName}?`,
+                `Are you sure you want to delete "<strong>${categoryName}</strong>"? This might affect products associated with it. This action cannot be undone.`,
+                async () => { // onConfirm callback
+                    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+                    button.disabled = true;
+                    try {
+                        const response = await adminApi.deleteCategory(categoryId);
+                        if (response && response.message && response.message.toLowerCase().includes('success')) {
+                            if(typeof showGlobalUIMessage === 'function') showGlobalUIMessage(response.message, 'success');
+                            fetchAndDisplayCategories();
+                        } else {
+                            throw new Error(response.error || 'Failed to delete category.');
+                        }
+                    } catch (error) {
+                        console.error('Failed to delete category:', error);
+                        if(typeof showGlobalUIMessage === 'function') showGlobalUIMessage(`Error deleting category: ${error.message}`, 'error');
+                        button.innerHTML = '<i class="fas fa-trash-alt fa-fw"></i>'; // Reset icon on error
+                        button.disabled = false;
+                    }
+                }
+            );
+        } else {
+            if(confirm(`Are you sure you want to delete "${categoryName}"?`)) {
+                button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+                button.disabled = true;
+                adminApi.deleteCategory(categoryId)
+                    .then((response) => {
+                        alert(response.message || "Category deleted.");
+                        fetchAndDisplayCategories();
+                    })
+                    .catch(err => {
+                        alert(`Error: ${err.message}`);
+                        button.innerHTML = '<i class="fas fa-trash-alt fa-fw"></i>';
+                        button.disabled = false;
+                    });
+            }
+        }
+    };
+
+    const showFormMessage = (message, type = 'info') => {
+        if (!formMessageContainer) return;
+        formMessageContainer.innerHTML = message; // Use innerHTML for potential <br>
+        formMessageContainer.className = 'text-sm p-3 rounded-md mt-2 ';
+        if (type === 'success') formMessageContainer.classList.add('text-green-700', 'bg-green-100');
+        else if (type === 'error') formMessageContainer.classList.add('text-red-700', 'bg-red-100');
+        else formMessageContainer.classList.add('text-blue-700', 'bg-blue-100');
+        formMessageContainer.classList.remove('hidden');
+    };
+    const clearFormMessage = () => {
+        if (!formMessageContainer) return;
+        formMessageContainer.textContent = '';
+        formMessageContainer.classList.add('hidden');
+    };
+
+    const initializePage = async () => {
+        await fetchAndDisplayCategories();
+    };
+
+    initializePage();
 });
