@@ -1,254 +1,205 @@
-// File: website/admin/js/admin_categories.js
+// This file (website/admin/js/admin_categories.js) will contain the JavaScript logic for managing categories.
+// Assuming the content was previously in 'admin/admin_manage_categories.html'
+
 document.addEventListener('DOMContentLoaded', () => {
-    if (typeof ensureAdminAuthenticated === 'function' && !ensureAdminAuthenticated()) { return; }
+    console.log("Admin Categories JS Loaded");
 
-    const addCategoryBtn = document.getElementById('addCategoryBtn');
-    const categoryModal = document.getElementById('categoryModal');
-    const closeModalBtn = categoryModal ? categoryModal.querySelector('#closeModalBtn') : null;
-    const cancelModalBtn = categoryModal ? categoryModal.querySelector('#cancelModalBtn') : null;
     const categoryForm = document.getElementById('categoryForm');
-    const modalTitle = categoryModal ? categoryModal.querySelector('#modalTitle') : null;
     const categoriesTableBody = document.getElementById('categoriesTableBody');
-    const saveCategoryBtn = document.getElementById('saveCategoryBtn');
-    const formMessageContainer = categoryModal ? categoryModal.querySelector('#formMessage') : null;
-
     let editingCategoryId = null;
 
-    const openModal = (isEdit = false, category = null) => {
-        if (!categoryModal || !categoryForm || !modalTitle || !saveCategoryBtn) return;
-        clearFormMessage();
-        categoryForm.reset();
-        saveCategoryBtn.disabled = false;
-        saveCategoryBtn.innerHTML = '<i class="fas fa-save mr-2"></i>Save Category';
+    // --- Modal for Confirmations/Alerts (Re-use or ensure it's globally available if in admin_main.js) ---
+    // For simplicity, defining it here. If it's in admin_main.js, you wouldn't redefine.
+    let alertModal, alertModalTitle, alertModalMessage, alertModalCloseButton, alertModalActions;
 
-        if (isEdit && category) {
-            modalTitle.textContent = 'Edit Category';
-            editingCategoryId = category.id;
-            document.getElementById('categoryId').value = category.id;
-            document.getElementById('categoryName').value = category.name;
-            document.getElementById('categoryDescription').value = category.description || '';
+    function setupModal() {
+        if (document.getElementById('alertModal')) {
+            alertModal = document.getElementById('alertModal');
+            alertModalTitle = document.getElementById('alertModalTitle');
+            alertModalMessage = document.getElementById('alertModalMessage');
+            alertModalCloseButton = document.getElementById('alertModalCloseButton');
+            alertModalActions = document.getElementById('alertModalActions');
         } else {
-            modalTitle.textContent = 'Add New Category';
-            editingCategoryId = null;
-            if(document.getElementById('categoryId')) document.getElementById('categoryId').value = '';
+            // Create modal if not present (e.g. if admin_main.js didn't load it or this script runs first)
+            const modalHTML = `
+                <div class="relative p-5 border w-full max-w-md m-auto flex-col flex rounded-lg shadow-lg bg-white">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-lg font-medium text-gray-900" id="alertModalTitle">Alert</h3>
+                        <button type="button" class="text-gray-400 bg-transparent hover:bg-gray-200 hover:text-gray-900 rounded-lg text-sm p-1.5 ml-auto inline-flex items-center" id="alertModalCloseButton">
+                            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"></path></svg>
+                        </button>
+                    </div>
+                    <div class="p-2 mt-2 text-center">
+                        <p class="text-sm text-gray-500" id="alertModalMessage">Modal message goes here.</p>
+                    </div>
+                    <div class="mt-3 flex justify-end space-x-2" id="alertModalActions">
+                        <button id="alertModalOkButton" class="px-4 py-2 bg-indigo-600 text-white text-base font-medium rounded-md shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">OK</button>
+                    </div>
+                </div>`;
+            const tempModal = document.createElement('div');
+            tempModal.id = 'alertModal';
+            tempModal.className = 'fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center hidden z-50';
+            tempModal.innerHTML = modalHTML;
+            document.body.appendChild(tempModal);
+            
+            alertModal = tempModal;
+            alertModalTitle = document.getElementById('alertModalTitle');
+            alertModalMessage = document.getElementById('alertModalMessage');
+            alertModalCloseButton = document.getElementById('alertModalCloseButton');
+            alertModalActions = document.getElementById('alertModalActions');
         }
-        categoryModal.classList.remove('opacity-0', 'pointer-events-none');
-        categoryModal.classList.add('opacity-100');
-        document.body.classList.add('modal-active');
-    };
-
-    const closeModal = () => {
-        if (!categoryModal) return;
-        categoryModal.classList.add('opacity-0');
-        categoryModal.classList.remove('opacity-100');
-        setTimeout(() => {
-            categoryModal.classList.add('pointer-events-none');
-            document.body.classList.remove('modal-active');
-        }, 250);
-    };
-
-    if (addCategoryBtn) addCategoryBtn.addEventListener('click', () => openModal());
-    if (closeModalBtn) closeModalBtn.addEventListener('click', closeModal);
-    if (cancelModalBtn) cancelModalBtn.addEventListener('click', closeModal);
-    window.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape' && categoryModal && !categoryModal.classList.contains('pointer-events-none')) {
-            closeModal();
-        }
-    });
+    }
+    setupModal();
 
 
-    const renderCategories = (categories) => {
-        if (!categoriesTableBody) return;
-        categoriesTableBody.innerHTML = '';
-        if (!categories || categories.length === 0) {
-            categoriesTableBody.innerHTML = `<tr><td colspan="5" class="px-6 py-4 text-center text-sm text-gray-500">No categories found.</td></tr>`;
-            return;
-        }
-        categories.forEach(category => {
-            const row = categoriesTableBody.insertRow();
-            row.className = 'hover:bg-gray-50 transition-colors';
-            row.innerHTML = `
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${category.id}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${category.name}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 max-w-xs truncate" title="${category.description || ''}">${category.description || 'N/A'}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${category.product_count === undefined ? 'N/A' : category.product_count}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
-                    <button class="edit-btn text-indigo-600 hover:text-indigo-800 p-1 rounded hover:bg-indigo-100" data-id="${category.id}" title="Edit ${category.name}"><i class="fas fa-pencil-alt fa-fw"></i></button>
-                    <button class="delete-btn text-red-600 hover:text-red-800 p-1 rounded hover:bg-red-100" data-id="${category.id}" title="Delete ${category.name}"><i class="fas fa-trash-alt fa-fw"></i></button>
-                </td>
-            `;
-        });
+    function showAlert(message, title = "Alert") {
+        if (!alertModal) setupModal(); // Ensure modal is initialized
+        alertModalTitle.textContent = title;
+        alertModalMessage.textContent = message;
+        alertModalActions.innerHTML = `<button id="alertModalOkButton" class="px-4 py-2 bg-indigo-600 text-white text-base font-medium rounded-md shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">OK</button>`;
+        alertModal.classList.remove('hidden');
+        document.getElementById('alertModalOkButton').onclick = () => alertModal.classList.add('hidden');
+        alertModalCloseButton.onclick = () => alertModal.classList.add('hidden');
+    }
 
-        document.querySelectorAll('.edit-btn').forEach(button => button.addEventListener('click', handleEditCategory));
-        document.querySelectorAll('.delete-btn').forEach(button => button.addEventListener('click', handleDeleteCategory));
-    };
+    function showConfirm(message, title = "Confirm", callback) {
+        if (!alertModal) setupModal();
+        alertModalTitle.textContent = title;
+        alertModalMessage.textContent = message;
+        alertModalActions.innerHTML = `
+            <button id="confirmModalCancelButton" class="px-4 py-2 bg-gray-200 text-gray-800 text-base font-medium rounded-md shadow-sm hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500">Cancel</button>
+            <button id="confirmModalConfirmButton" class="px-4 py-2 bg-red-600 text-white text-base font-medium rounded-md shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500">Confirm</button>
+        `;
+        alertModal.classList.remove('hidden');
 
-    const fetchAndDisplayCategories = async () => {
-        if (!categoriesTableBody) return;
-        categoriesTableBody.innerHTML = `<tr><td colspan="5" class="text-center p-4 text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>Loading categories...</td></tr>`;
+        const confirmBtn = document.getElementById('confirmModalConfirmButton');
+        const cancelBtn = document.getElementById('confirmModalCancelButton');
+
+        confirmBtn.onclick = () => {
+            alertModal.classList.add('hidden');
+            callback(true);
+        };
+        cancelBtn.onclick = () => {
+            alertModal.classList.add('hidden');
+            callback(false);
+        };
+        alertModalCloseButton.onclick = () => {
+            alertModal.classList.add('hidden');
+            callback(false);
+        };
+    }
+    // --- End Modal ---
+
+    // Load categories and populate table
+    async function loadCategories() {
         try {
-            // Assuming API returns an array for categories or an object { categories: [] }
-            const response = await adminApi.getCategories(undefined, 1, 200); // Fetch all for now
-            let categoryList = [];
-            if (Array.isArray(response)) {
-                categoryList = response;
-            } else if (response && response.categories && Array.isArray(response.categories)) {
-                categoryList = response.categories;
-            } else if (response && response.data && Array.isArray(response.data)) { // Adapt to various possible API responses
-                categoryList = response.data;
+            const categories = await adminApi.getCategories(); // Assumes adminApi.getCategories is defined
+            if (!categoriesTableBody) {
+                console.warn("Categories table body not found on this page.");
+                return;
             }
-
-
-            renderCategories(categoryList);
-            if (categoryList.length === 0) {
-                categoriesTableBody.innerHTML = `<tr><td colspan="5" class="px-6 py-4 text-center text-sm text-gray-500">No categories created yet. Click 'Add New Category'.</td></tr>`;
+            categoriesTableBody.innerHTML = ''; // Clear existing categories
+            if (categories.length === 0) {
+                categoriesTableBody.innerHTML = `<tr><td colspan="3" class="text-center py-4">No categories found.</td></tr>`;
+                return;
             }
-
+            categories.forEach(category => {
+                const row = categoriesTableBody.insertRow();
+                row.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${category.id}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${category.name}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <button class="text-indigo-600 hover:text-indigo-900 edit-cat-btn" data-id="${category.id}" data-name="${category.name}">Edit</button>
+                        <button class="text-red-600 hover:text-red-900 delete-cat-btn ml-4" data-id="${category.id}">Delete</button>
+                    </td>
+                `;
+            });
+            attachCategoryActionListeners();
         } catch (error) {
-            console.error('Failed to fetch categories:', error);
-            categoriesTableBody.innerHTML = `<tr><td colspan="5" class="px-6 py-4 text-center text-sm text-red-500">Error loading categories: ${error.message}</td></tr>`;
-            if (typeof showGlobalUIMessage === 'function') showGlobalUIMessage(`Error fetching categories: ${error.message}`, 'error');
+            console.error("Failed to load categories:", error);
+             if (categoriesTableBody) {
+                categoriesTableBody.innerHTML = `<tr><td colspan="3" class="text-center py-4 text-red-500">Error loading categories.</td></tr>`;
+            }
+            showAlert("Could not load categories. Please try again.", "Error");
         }
-    };
+    }
 
+    // Handle category form submission (Add/Edit)
     if (categoryForm) {
         categoryForm.addEventListener('submit', async (event) => {
             event.preventDefault();
-            if (!saveCategoryBtn) return;
+            const categoryNameInput = document.getElementById('categoryName');
+            const name = categoryNameInput.value.trim();
 
-            const categoryData = {
-                name: document.getElementById('categoryName').value,
-                description: document.getElementById('categoryDescription').value,
-            };
-
-            // Basic client-side validation
-            if (!categoryData.name.trim()) {
-                showFormMessage('Category name is required.', 'error');
-                document.getElementById('categoryName').focus();
+            if (!name) {
+                showAlert("Category name cannot be empty.", "Validation Error");
                 return;
             }
 
-            saveCategoryBtn.disabled = true;
-            saveCategoryBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Saving...';
-            clearFormMessage();
+            const categoryData = { name };
 
             try {
-                let response;
                 if (editingCategoryId) {
-                    response = await adminApi.updateCategory(editingCategoryId, categoryData);
+                    await adminApi.updateCategory(editingCategoryId, categoryData); // Assumes adminApi.updateCategory
+                    showAlert("Category updated successfully!", "Success");
                 } else {
-                    response = await adminApi.addCategory(categoryData);
+                    await adminApi.addCategory(categoryData); // Assumes adminApi.addCategory
+                    showAlert("Category added successfully!", "Success");
                 }
-
-                if (response && (response.id || (response.message && response.message.toLowerCase().includes('success')))) {
-                    if(typeof showGlobalUIMessage === 'function') showGlobalUIMessage(response.message || (editingCategoryId ? 'Category updated successfully!' : 'Category added successfully!'), 'success');
-                    fetchAndDisplayCategories();
-                    closeModal();
-                } else {
-                     // Handle specific validation errors from backend if provided
-                    if (response && response.errors) {
-                        let errorMessages = Object.values(response.errors).join('<br>');
-                        showFormMessage(`Validation failed:<br>${errorMessages}`, 'error');
-                    } else {
-                        throw new Error(response.error || 'Failed to save category.');
-                    }
-                }
+                categoryForm.reset();
+                editingCategoryId = null;
+                document.getElementById('formCategoryTitle').textContent = 'Add New Category';
+                document.getElementById('submitCategoryButton').textContent = 'Add Category';
+                loadCategories(); // Refresh category list
             } catch (error) {
-                console.error('Failed to save category:', error);
-                showFormMessage(`Error: ${error.message}`, 'error');
-            } finally {
-                saveCategoryBtn.disabled = false;
-                saveCategoryBtn.innerHTML = '<i class="fas fa-save mr-2"></i>Save Category';
+                console.error("Failed to save category:", error);
+                showAlert(`Error saving category: ${error.message || 'Unknown error.'}`, "Error");
             }
         });
     }
 
-    const handleEditCategory = async (event) => {
-        const button = event.currentTarget;
-        const categoryId = button.dataset.id;
-        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-        button.disabled = true;
+    // Attach event listeners for edit and delete buttons
+    function attachCategoryActionListeners() {
+        document.querySelectorAll('.edit-cat-btn').forEach(button => {
+            button.addEventListener('click', (event) => {
+                const categoryId = event.target.dataset.id;
+                const categoryName = event.target.dataset.name;
+                populateCategoryFormForEdit(categoryId, categoryName);
+            });
+        });
 
-        try {
-            const category = await adminApi.getCategoryById(categoryId);
-            if (category) {
-                openModal(true, category);
-            } else {
-                 if(typeof showGlobalUIMessage === 'function') showGlobalUIMessage('Could not fetch category details to edit.', 'error');
-            }
-        } catch (error) {
-            console.error('Error fetching category for edit:', error);
-             if(typeof showGlobalUIMessage === 'function') showGlobalUIMessage(`Error fetching category: ${error.message}`, 'error');
-        } finally {
-            button.innerHTML = '<i class="fas fa-pencil-alt fa-fw"></i>';
-            button.disabled = false;
-        }
-    };
-
-    const handleDeleteCategory = (event) => {
-        const button = event.currentTarget;
-        const categoryId = button.dataset.id;
-        const categoryName = button.closest('tr').querySelector('td:nth-child(2)').textContent || `Category ID ${categoryId}`;
-
-        if (typeof showConfirmModal === 'function') {
-            showConfirmModal(
-                `Delete Category: ${categoryName}?`,
-                `Are you sure you want to delete "<strong>${categoryName}</strong>"? This might affect products associated with it. This action cannot be undone.`,
-                async () => { // onConfirm callback
-                    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-                    button.disabled = true;
-                    try {
-                        const response = await adminApi.deleteCategory(categoryId);
-                        if (response && response.message && response.message.toLowerCase().includes('success')) {
-                            if(typeof showGlobalUIMessage === 'function') showGlobalUIMessage(response.message, 'success');
-                            fetchAndDisplayCategories();
-                        } else {
-                            throw new Error(response.error || 'Failed to delete category.');
+        document.querySelectorAll('.delete-cat-btn').forEach(button => {
+            button.addEventListener('click', (event) => {
+                const categoryId = event.target.dataset.id;
+                showConfirm('Are you sure you want to delete this category?', 'Delete Category', async (confirmed) => {
+                    if (confirmed) {
+                        try {
+                            await adminApi.deleteCategory(categoryId); // Assumes adminApi.deleteCategory
+                            showAlert("Category deleted successfully!", "Success");
+                            loadCategories(); // Refresh category list
+                        } catch (error) {
+                            console.error("Failed to delete category:", error);
+                            showAlert(`Error deleting category: ${error.message || 'Unknown error.'}`, "Error");
                         }
-                    } catch (error) {
-                        console.error('Failed to delete category:', error);
-                        if(typeof showGlobalUIMessage === 'function') showGlobalUIMessage(`Error deleting category: ${error.message}`, 'error');
-                        button.innerHTML = '<i class="fas fa-trash-alt fa-fw"></i>'; // Reset icon on error
-                        button.disabled = false;
                     }
-                }
-            );
-        } else {
-            if(confirm(`Are you sure you want to delete "${categoryName}"?`)) {
-                button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-                button.disabled = true;
-                adminApi.deleteCategory(categoryId)
-                    .then((response) => {
-                        alert(response.message || "Category deleted.");
-                        fetchAndDisplayCategories();
-                    })
-                    .catch(err => {
-                        alert(`Error: ${err.message}`);
-                        button.innerHTML = '<i class="fas fa-trash-alt fa-fw"></i>';
-                        button.disabled = false;
-                    });
-            }
+                });
+            });
+        });
+    }
+
+    // Populate form for editing a category
+    function populateCategoryFormForEdit(categoryId, categoryName) {
+        if (categoryForm) {
+            document.getElementById('categoryName').value = categoryName;
+            editingCategoryId = categoryId;
+            document.getElementById('formCategoryTitle').textContent = 'Edit Category';
+            document.getElementById('submitCategoryButton').textContent = 'Update Category';
+            categoryForm.scrollIntoView({ behavior: 'smooth' });
         }
-    };
+    }
 
-    const showFormMessage = (message, type = 'info') => {
-        if (!formMessageContainer) return;
-        formMessageContainer.innerHTML = message; // Use innerHTML for potential <br>
-        formMessageContainer.className = 'text-sm p-3 rounded-md mt-2 ';
-        if (type === 'success') formMessageContainer.classList.add('text-green-700', 'bg-green-100');
-        else if (type === 'error') formMessageContainer.classList.add('text-red-700', 'bg-red-100');
-        else formMessageContainer.classList.add('text-blue-700', 'bg-blue-100');
-        formMessageContainer.classList.remove('hidden');
-    };
-    const clearFormMessage = () => {
-        if (!formMessageContainer) return;
-        formMessageContainer.textContent = '';
-        formMessageContainer.classList.add('hidden');
-    };
-
-    const initializePage = async () => {
-        await fetchAndDisplayCategories();
-    };
-
-    initializePage();
+    // Initial load
+    if (categoriesTableBody) {
+        loadCategories();
+    }
 });
