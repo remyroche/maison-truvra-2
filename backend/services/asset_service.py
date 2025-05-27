@@ -1,443 +1,257 @@
-# backend/services/asset_service.py
-import os
 import qrcode
 from PIL import Image, ImageDraw, ImageFont
-from flask import current_app, url_for
-import datetime
-
-# --- Utility function (can be in backend/utils.py or here if very specific) ---
-def format_date_french(date_iso_str, fmt="%d/%m/%Y"):
-    if not date_iso_str:
-        return "N/A"
-    try:
-        if isinstance(date_iso_str, (datetime.date, datetime.datetime)):
-            dt_obj = date_iso_str# backend/services/asset_service.py
 import os
-import qrcode
-from PIL import Image, ImageDraw, ImageFont
-from flask import current_app, url_for
-import datetime
+import json
+from flask import current_app, url_for # Added url_for
 
-# (Keep _draw_text_multiline, _paste_image_in_area, format_date_french as is)
-def format_date_french(date_iso_str, fmt="%d/%m/%Y"): # Ensure this is available
-    if not date_iso_str: return "N/A"
-    try:
-        if isinstance(date_iso_str, (datetime.date, datetime.datetime)): dt_obj = date_iso_str
-        elif 'T' in str(date_iso_str): dt_obj = datetime.date.fromisoformat(str(date_iso_str).split('T')[0])
-        else: dt_obj = datetime.date.fromisoformat(str(date_iso_str))
-        return dt_obj.strftime(fmt)
-    except: return str(date_iso_str)
+class AssetService:
+    def __init__(self, app):
+        self.app = app
+        self.config = app.config # Store config for easy access
 
+    def _ensure_dir(self, directory_path):
+        if not os.path.exists(directory_path):
+            os.makedirs(directory_path, exist_ok=True)
 
-def generate_qr_code_for_passport(passport_url, product_id):
-    if not passport_url or not product_id:
-        current_app.logger.error("Passport URL or Product ID missing for QR code generation.")
-        return None
+    def generate_qr_code(self, product_id, product_slug):
+        """
+        Generates a QR code for a given product ID that links to the product detail page.
+        Saves the QR code image and returns its web-accessible path.
+        """
+        qr_output_dir = self.config['QR_CODES_OUTPUT_DIR']
+        self._ensure_dir(qr_output_dir)
 
-    qr_output_dir = current_app.config['QR_CODES_OUTPUT_DIR']
-    qr_subdir_from_static = current_app.config['QR_CODES_SUBDIR']
-    os.makedirs(qr_output_dir, exist_ok=True)
-
-    qr_filename = f"QR_{product_id.replace('/', '_').replace(' ', '_')}.png"
-    qr_filepath_absolute = os.path.join(qr_output_dir, qr_filename)
-    qr_filepath_relative_to_static = os.path.join(qr_subdir_from_static, qr_filename).replace("\\", "/")
-
-    try:
-        img = qrcode.make(passport_url)
-        img.save(qr_filepath_absolute)
-        current_app.logger.info(f"QR Code generated for {product_id} at {qr_filepath_absolute}")
-        return qr_filepath_relative_to_static
-    except Exception as e:
-        current_app.logger.error(f"Failed to generate QR code for {product_id}: {e}")
-        return None
-
-def generate_product_passport_html_content(product_data_fr, product_data_en):
-    # Extract FR data
-    nom_produit_fr = product_data_fr.get("name", "N/A")
-    num_identification_fr = product_data_fr.get("id", "N/A") # Should be same for both
-    num_lot_fr = product_data_fr.get("numero_lot_manuel", "Non fourni")
-    date_conditionnement_fr = format_date_french(product_data_fr.get("date_conditionnement", datetime.date.today().isoformat()))
-    ddm_fr = format_date_french(product_data_fr.get("ddm", (datetime.date.today() + datetime.timedelta(days=365*2)).isoformat()))
-    poids_net_fr = product_data_fr.get("poids_net_final_g", "N/A")
-    poids_net_str_fr = f"{poids_net_fr} g" if poids_net_fr not in ["N/A", None] else "N/A"
-    ingredients_fr = product_data_fr.get("ingredients_affichage", "Veuillez consulter l'emballage.")
-    espece_truffe_fr = product_data_fr.get("species", "de nos régions")
-    texte_passion_fr = f"""Nos truffes {espece_truffe_fr} sont cultivées avec un soin extrême dans nos installations uniques.
-Chez Maison Trüvra, nous maîtrisons chaque paramètre de notre environnement contrôlé pour permettre à chaque truffe
-d'atteindre sa parfaite maturité aromatique. C'est cet artisanat méticuleux qui garantit la pureté et l'intensité
-de la truffe utilisée pour votre {nom_produit_fr}.
-<br><br>
-Nous sommes fiers de cultiver nos truffes en respectant l'environnement, en utilisant des intrants respectueux
-et de l'énergie 100% renouvelable."""
-
-    # Extract EN data
-    nom_produit_en = product_data_en.get("name", "N/A")
-    num_identification_en = product_data_en.get("id", "N/A") # Should be same
-    num_lot_en = product_data_en.get("numero_lot_manuel", "Not provided")
-    date_conditionnement_en = format_date_french(product_data_en.get("date_conditionnement", datetime.date.today().isoformat()), fmt="%Y-%m-%d") # Standard EN format
-    ddm_en = format_date_french(product_data_en.get("ddm", (datetime.date.today() + datetime.timedelta(days=365*2)).isoformat()), fmt="%Y-%m-%d")
-    poids_net_en = product_data_en.get("poids_net_final_g", "N/A")
-    poids_net_str_en = f"{poids_net_en} g" if poids_net_en not in ["N/A", None] else "N/A"
-    ingredients_en = product_data_en.get("ingredients_affichage", "Please see packaging.")
-    espece_truffe_en = product_data_en.get("species", "from our regions")
-    texte_passion_en = f"""Our {espece_truffe_en} truffles are cultivated with extreme care in our unique facilities.
-At Maison Trüvra, we control every parameter of our environment to allow each truffle
-to reach its perfect aromatic maturity. This meticulous craftsmanship guarantees the purity and intensity
-of the truffle used for your {nom_produit_en}.
-<br><br>
-We are proud to cultivate our truffles respecting the environment, using eco-friendly inputs
-and 100% renewable energy."""
-
-
-    logo_url = product_data_fr.get("logo_url") or url_for('static', filename=current_app.config.get('LABEL_LOGO_PATH_STATIC_RELATIVE', 'images/image_6be700.png'), _external=True)
-    logo_tag = f'<img src="{logo_url}" alt="Logo Maison Trüvra" class="logo" style="max-width:180px; margin-bottom:15px;">'
-
-    contact_email = current_app.config.get('CONTACT_EMAIL', 'contact@example.com')
-    instagram_handle = current_app.config.get('INSTAGRAM_HANDLE', "@maisontruvra")
-    site_base_url = current_app.config.get('SITE_BASE_URL', 'http://127.0.0.1:5001')
-
-    html_content = f"""<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Passeport Produit / Product Passport - {nom_produit_fr} / {nom_produit_en}</title>
-    <style>
-        body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f9f6f2; color: #3a2d22; line-height: 1.6; }}
-        .container {{ max-width: 800px; margin: 20px auto; padding: 25px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.08); }}
-        header {{ text-align: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid #e0d8ce; }}
-        h1 {{ color: #5c4b3e; font-size: 2.2em; margin-bottom: 10px; }}
-        h2 {{ color: #7a6a5d; font-size: 1.6em; margin-top: 30px; margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 8px; }}
-        p, li {{ font-size: 1.05em; margin-bottom: 12px; }}
-        .product-info {{ background-color: #fdfbf7; padding: 20px; border-radius: 8px; margin-bottom: 25px; border: 1px solid #e0d8ce; }}
-        .product-info strong {{ color: #5c4b3e; min-width: 220px; display: inline-block; }}
-        .section {{ margin-bottom: 30px; }}
-        .links-section a {{ display: block; margin-bottom: 10px; color: #8c6d52; text-decoration: none; font-weight: bold; }}
-        .links-section a:hover {{ color: #5c4b3e; }}
-        footer {{ text-align: center; margin-top: 40px; padding-top: 25px; border-top: 2px solid #e0d8ce; font-size: 0.95em; color: #7a6a5d; }}
-        footer a {{ color: #7a6a5d; }}
-        .lang-toggle {{ text-align: center; margin-bottom: 20px; }}
-        .lang-toggle button {{ padding: 8px 15px; margin: 0 5px; cursor: pointer; background-color: #e0d8ce; border: 1px solid #c8bfae; border-radius: 5px; font-weight: bold; }}
-        .lang-toggle button.active {{ background-color: #7D6A4F; color: #F5EEDE; }}
-        .lang-content {{ display: none; }}
-        .lang-content.active {{ display: block; }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <header>
-            {logo_tag}
-            <div class="lang-toggle">
-                <button id="btn-fr" onclick="showLang('fr')" class="active">Français</button>
-                <button id="btn-en" onclick="showLang('en')">English</button>
-            </div>
-            <div class="lang-content active" lang="fr"><h1>Passeport de Votre Produit</h1></div>
-            <div class="lang-content" lang="en"><h1>Your Product Passport</h1></div>
-        </header>
-
-        <div class="lang-content active" lang="fr">
-            <section class="product-info section">
-                <h2>Informations du Produit</h2>
-                <p><strong>Produit :</strong> {nom_produit_fr}</p>
-                <p><strong>Numéro d'identification :</strong> {num_identification_fr}</p>
-                <p><strong>Numéro de lot :</strong> {num_lot_fr}</p>
-                <p><strong>Date de conditionnement :</strong> {date_conditionnement_fr}</p>
-                <p><strong>À consommer de préférence avant le :</strong> {ddm_fr}</p>
-                <p><strong>Poids Net :</strong> {poids_net_str_fr}</p>
-                <p><strong>Ingrédients :</strong> {ingredients_fr}</p>
-            </section>
-            <section class="passion-text section">
-                <h2>Cultivé avec Passion</h2><p>{texte_passion_fr}</p>
-            </section>
-        </div>
-
-        <div class="lang-content" lang="en">
-            <section class="product-info section">
-                <h2>Product Information</h2>
-                <p><strong>Product:</strong> {nom_produit_en}</p>
-                <p><strong>Identification Number:</strong> {num_identification_en}</p>
-                <p><strong>Lot Number:</strong> {num_lot_en}</p>
-                <p><strong>Packaging Date:</strong> {date_conditionnement_en}</p>
-                <p><strong>Best Before Date:</strong> {ddm_en}</p>
-                <p><strong>Net Weight:</strong> {poids_net_str_en}</p>
-                <p><strong>Ingredients:</strong> {ingredients_en}</p>
-            </section>
-            <section class="passion-text section">
-                <h2>Cultivated with Passion</h2><p>{texte_passion_en}</p>
-            </section>
-        </div>
-
-        <section class="links-section section">
-            <div class="lang-content active" lang="fr">
-                <h2>Explorer Plus</h2>
-                <a href="{site_base_url}/notre-histoire.html" target="_blank">Notre Histoire</a>
-                <a href="{site_base_url}" target="_blank">Retour à l'Accueil</a>
-            </div>
-            <div class="lang-content" lang="en">
-                <h2>Explore More</h2>
-                <a href="{site_base_url}/notre-histoire.html?lang=en" target="_blank">Our Story</a>
-                <a href="{site_base_url}/index.html?lang=en" target="_blank">Back to Home</a>
-            </div>
-        </section>
-        <footer>
-            <div class="lang-content active" lang="fr">
-                <p>Merci d'avoir choisi Maison Trüvra !</p>
-                <p>Contact : <a href="mailto:{contact_email}">{contact_email}</a> | Instagram: <a href="https://www.instagram.com/{instagram_handle.replace('@','')}" target="_blank">{instagram_handle}</a></p>
-                <p><a href="{site_base_url}" target="_blank">{site_base_url.replace('http://','').replace('https://','')}</a></p>
-            </div>
-            <div class="lang-content" lang="en">
-                <p>Thank you for choosing Maison Trüvra!</p>
-                <p>Contact: <a href="mailto:{contact_email}">{contact_email}</a> | Instagram: <a href="https://www.instagram.com/{instagram_handle.replace('@','')}" target="_blank">{instagram_handle}</a></p>
-                <p><a href="{site_base_url}" target="_blank">{site_base_url.replace('http://','').replace('https://','')}</a></p>
-            </div>
-        </footer>
-    </div>
-    <script>
-        function showLang(lang) {{
-            document.querySelectorAll('.lang-content').forEach(el => {{
-                if (el.getAttribute('lang') === lang) {{
-                    el.style.display = 'block';
-                    el.classList.add('active');
-                }} else {{
-                    el.style.display = 'none';
-                    el.classList.remove('active');
-                }}
-            }});
-            document.querySelectorAll('.lang-toggle button').forEach(btn => {{
-                if (btn.id === 'btn-' + lang) {{
-                    btn.classList.add('active');
-                }} else {{
-                    btn.classList.remove('active');
-                }}
-            }});
-            document.documentElement.lang = lang;
-        }}
-        var userLang = navigator.language || navigator.userLanguage;
-        if (userLang.startsWith('en')) {{
-            showLang('en');
-        }} else {{
-            showLang('fr'); // Default to French
-        }}
-    </script>
-</body>
-</html>"""
-    return html_content
-
-def save_product_passport_html(html_content, product_id):
-    passport_output_dir = current_app.config['PASSPORTS_OUTPUT_DIR']
-    passport_subdir_from_static = current_app.config['PASSPORTS_SUBDIR']
-    os.makedirs(passport_output_dir, exist_ok=True)
-
-    passport_filename = f"passport_{product_id.replace('/', '_').replace(' ', '_')}.html"
-    passport_filepath_absolute = os.path.join(passport_output_dir, passport_filename)
-    passport_filepath_relative_to_static = os.path.join(passport_subdir_from_static, passport_filename).replace("\\", "/")
-
-    try:
-        with open(passport_filepath_absolute, 'w', encoding='utf-8') as f:
-            f.write(html_content)
-        current_app.logger.info(f"Passport HTML generated for {product_id} at {passport_filepath_absolute}")
-        return passport_filepath_relative_to_static
-    except Exception as e:
-        current_app.logger.error(f"Failed to save passport HTML for {product_id}: {e}")
-        return None
-
-# Ensure generate_product_label_image and other helper functions like _draw_text_multiline, _paste_image_in_area are defined above or imported.
-# The label generation logic would also need to accept localized data if labels are to be bilingual.
-# For simplicity, label generation is omitted from this direct update but would follow a similar pattern.
-# Make sure POT_LABEL_CONFIG and PRODUCT_CONTENT_CONFIG are defined or imported if used by label generation.
-
-def _draw_text_multiline(draw, text, position, font, max_width, text_color, spacing=4, align="left"):
-    """Internal helper for drawing multiline text, adapted from generate_label.py"""
-    if not text: return position[1]
-    lines = []
-    words = text.split()
-    if not words: return position[1]
-
-    current_line = words[0]
-    for word in words[1:]:
-        test_line = f"{current_line} {word}"
+        # Construct the URL for the product detail page
+        # Assuming your frontend product detail URL is something like /produit-detail.html?slug=<product_slug>
+        # or /products/<product_slug>
+        # This needs to match your actual frontend routing.
+        # Using url_for requires the endpoint to be defined. If it's a static HTML page,
+        # you might need to construct the URL manually or have a config for base URL.
         try:
-            bbox = draw.textbbox((0,0), test_line, font=font)
-            line_width = bbox[2] - bbox[0]
-        except AttributeError:
-            line_width, _ = draw.textsize(test_line, font=font)
+            # Example if you have a route for product details in Flask (even if it serves static HTML)
+            # product_url = url_for('products.get_product_by_slug', product_slug=product_slug, _external=True)
+            # For now, let's assume a simpler structure if no such route exists:
+            base_url = self.app.config.get('FRONTEND_BASE_URL', '/') # Add FRONTEND_BASE_URL to your config
+            product_url = f"{base_url.rstrip('/')}/produit-detail.html?slug={product_slug}"
 
-        if line_width <= max_width:
-            current_line = test_line
-        else:
-            lines.append(current_line)
-            current_line = word
-    lines.append(current_line)
+        except Exception as e:
+            # Fallback if url_for fails or not applicable
+            self.app.logger.warning(f"Could not generate product URL via url_for for slug {product_slug}: {e}. Using manual construction.")
+            # Adjust this to your actual frontend URL structure
+            product_url = f"/produit-detail.html?slug={product_slug}" 
 
-    y_text = position[1]
-    for line in lines:
-        x_text = position[0]
-        line_actual_width = 0
-        line_height = 0
+
+        qr_filename = f"qr_product_{product_id}_{product_slug}.png"
+        qr_filepath = os.path.join(qr_output_dir, qr_filename)
+        
+        qr_img = qrcode.make(product_url)
+        qr_img.save(qr_filepath)
+        
+        # Return the web-accessible path
+        # Assuming QR_CODES_OUTPUT_DIR is under 'website/static/assets/qr_codes'
+        # The web path would be 'static/assets/qr_codes/qr_filename.png'
+        # This needs to be relative to the static folder.
+        static_base_path = os.path.join('static', 'assets', 'qr_codes') # Relative to website folder
+        qr_web_path = os.path.join(static_base_path, qr_filename).replace("\\", "/") # Ensure forward slashes for web
+        
+        self.app.logger.info(f"Generated QR code for product {product_id} at {qr_filepath}, web path: {qr_web_path}")
+        return qr_web_path
+
+
+    def generate_product_label(self, product, variant=None):
+        """
+        Generates a product label image (e.g., for printing).
+        Saves the label and returns its web-accessible path.
+        This is a placeholder and needs actual label design implementation.
+        """
+        labels_output_dir = self.config['LABELS_OUTPUT_DIR']
+        self._ensure_dir(labels_output_dir)
+
+        product_name = product.get('name_fr', 'Nom Inconnu')
+        sku = product.get('sku', 'SKU_INCONNU')
+        variant_name = variant.get('name_fr', '') if variant else ''
+        variant_sku = variant.get('sku', sku) if variant else sku # Use variant SKU if available
+
+        label_filename = f"label_product_{product.get('id', '0')}_{variant_sku}.png"
+        label_filepath = os.path.join(labels_output_dir, label_filename)
+
+        # --- Placeholder for actual label generation ---
         try:
-            bbox_line = draw.textbbox((0,0), line, font=font)
-            line_actual_width = bbox_line[2] - bbox_line[0]
-            line_height = bbox_line[3] - bbox_line[1]
-        except AttributeError: # Fallback
-            line_actual_width, line_height = draw.textsize(line, font=font)
+            img_width = 400
+            img_height = 200
+            img = Image.new('RGB', (img_width, img_height), color = 'white')
+            d = ImageDraw.Draw(img)
+            
+            # Load fonts (ensure these paths are correct in config.py)
+            try:
+                font_regular_path = self.config['FONT_PATH_REGULAR']
+                font_bold_path = self.config['FONT_PATH_BOLD']
+                font_main = ImageFont.truetype(font_regular_path, 18)
+                font_small = ImageFont.truetype(font_regular_path, 12)
+                font_title = ImageFont.truetype(font_bold_path, 22)
+            except IOError:
+                self.app.logger.error(f"Font files not found at {self.config.get('FONT_PATH_REGULAR')} or {self.config.get('FONT_PATH_BOLD')}. Using default font.")
+                # Pillow's default font is very basic. It's better to ensure fonts are available.
+                font_main = ImageFont.load_default()
+                font_small = ImageFont.load_default()
+                font_title = ImageFont.load_default()
 
-        if align == "center":
-            x_text = position[0] + (max_width - line_actual_width) / 2
-        elif align == "right":
-            x_text = position[0] + (max_width - line_actual_width)
 
-        draw.text((x_text, y_text), line, font=font, fill=text_color)
-        y_text += line_height + spacing
-    return y_text
+            # Simple label content
+            d.text((10,10), "Maison Trüvra", fill=(0,0,0), font=font_title)
+            d.text((10,50), f"Produit: {product_name}", fill=(0,0,0), font=font_main)
+            if variant_name:
+                d.text((10,80), f"Variante: {variant_name}", fill=(0,0,0), font=font_main)
+            d.text((10,110), f"SKU: {variant_sku}", fill=(0,0,0), font=font_small)
+            
+            # Example: Add a QR code to the label (using the previously generated one if available)
+            qr_code_path_on_label = product.get('qr_code_url') # This is the web path
+            if qr_code_path_on_label:
+                # Convert web path to filesystem path
+                # Assuming qr_code_url is like 'static/assets/qr_codes/qr_file.png'
+                # and BASE_DIR points to project root.
+                qr_file_system_path = os.path.join(self.config['BASE_DIR'], 'website', qr_code_path_on_label)
+                if os.path.exists(qr_file_system_path):
+                    try:
+                        qr_img_label = Image.open(qr_file_system_path)
+                        qr_img_label = qr_img_label.resize((80, 80)) # Resize as needed
+                        img.paste(qr_img_label, (img_width - 90, img_height - 90))
+                    except Exception as e_qr:
+                        self.app.logger.error(f"Could not embed QR code on label: {e_qr}")
+                else:
+                    self.app.logger.warning(f"QR code file not found for label embedding: {qr_file_system_path}")
 
-def _paste_image_in_area(base_image, image_to_paste_path, area_coords):
-    """Internal helper for pasting an image into a defined area, adapted from generate_label.py"""
-    if image_to_paste_path and os.path.exists(image_to_paste_path):
+
+            img.save(label_filepath)
+        except Exception as e:
+            self.app.logger.error(f"Error generating placeholder label for product {product.get('id')}: {e}")
+            # Fallback: create a dummy file to avoid breaking if path is expected
+            with open(label_filepath, 'w') as f:
+                f.write("Error generating label.")
+            # return None # Or handle error appropriately
+
+        # Return the web-accessible path
+        static_base_path = os.path.join('static', 'assets', 'labels')
+        label_web_path = os.path.join(static_base_path, label_filename).replace("\\", "/")
+
+        self.app.logger.info(f"Generated label for product {product.get('id')} at {label_filepath}, web path: {label_web_path}")
+        return label_web_path
+
+    def generate_product_passport(self, product, variant=None):
+        """
+        Generates an HTML product passport.
+        Saves the HTML file and returns its web-accessible path.
+        """
+        passports_output_dir = self.config['PRODUCT_PASSPORTS_OUTPUT_DIR']
+        self._ensure_dir(passports_output_dir)
+
+        product_id = product.get('id', '0')
+        product_slug = product.get('slug', 'produit-inconnu')
+        variant_sku = variant.get('sku', product.get('sku', 'SKU_INCONNU')) if variant else product.get('sku', 'SKU_INCONNU')
+
+        passport_filename = f"passport_product_{product_id}_{variant_sku}.html"
+        passport_filepath = os.path.join(passports_output_dir, passport_filename)
+
+        # --- HTML Content Generation ---
+        product_name_fr = product.get('name_fr', 'N/A')
+        description_fr = product.get('description_fr', 'N/A')
+        main_image_url = product.get('main_image_url', '')
+        qr_code_url = product.get('qr_code_url', '') # This should be the web path already
+
+        # Adjust image and QR code paths to be absolute or correctly relative for the HTML file
+        # If main_image_url and qr_code_url are already web paths (e.g., /static/...), they might work directly.
+        # Otherwise, you might need to make them absolute URLs or adjust.
+        # For simplicity, assuming they are web paths relative to the domain root.
+
+        html_content = f"""
+        <!DOCTYPE html>
+        <html lang="fr">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Passeport Produit: {product_name_fr}</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; padding: 0; background-color: #f9f9f9; color: #333; }}
+                .container {{ background-color: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 0 15px rgba(0,0,0,0.1); }}
+                h1 {{ color: #2c3e50; border-bottom: 2px solid #e0ac69; padding-bottom: 10px; }}
+                h2 {{ color: #e0ac69; margin-top: 20px; }}
+                p {{ line-height: 1.6; }}
+                .product-image {{ max-width: 300px; height: auto; border-radius: 4px; margin-bottom: 20px; border: 1px solid #ddd; }}
+                .qr-code {{ max-width: 150px; height: auto; margin-top: 20px; }}
+                .section {{ margin-bottom: 20px; }}
+                .logo {{ max-width: 150px; margin-bottom: 20px; }}
+                footer {{ margin-top: 30px; text-align: center; font-size: 0.9em; color: #777; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <img src="/static/images/logo/logo-TRUVRA-noir.png" alt="Maison Trüvra Logo" class="logo">
+                <h1>Passeport Produit</h1>
+                
+                <div class="section">
+                    <h2>{product_name_fr}</h2>
+                    <p><strong>SKU:</strong> {variant_sku}</p>
+                    {f'<img src="/{main_image_url}" alt="{product_name_fr}" class="product-image">' if main_image_url else ''}
+                </div>
+
+                <div class="section">
+                    <h3>Description</h3>
+                    <p>{description_fr}</p>
+                </div>
+                
+                <div class="section">
+                    <h3>Informations Complémentaires</h3>
+                    <p><strong>Origine:</strong> (À compléter)</p>
+                    <p><strong>Date de récolte/Lot:</strong> (À compléter)</p>
+                    <p><strong>Conservation:</strong> (À compléter)</p>
+                </div>
+
+                {f'''
+                <div class="section">
+                    <h3>QR Code</h3>
+                    <p>Scannez pour plus d'informations :</p>
+                    <img src="/{qr_code_url}" alt="QR Code" class="qr-code">
+                </div>
+                ''' if qr_code_url else ''}
+
+                <footer>
+                    Maison Trüvra &copy; {os.path.basename(passport_filepath).split('_')[-1].split('.')[0]} <p>Pour toute question, contactez-nous à contact@maisontruvra.com</p>
+                </footer>
+            </div>
+        </body>
+        </html>
+        """
+
         try:
-            img_to_paste = Image.open(image_to_paste_path)
-            area_width = area_coords[2] - area_coords[0]
-            area_height = area_coords[3] - area_coords[1]
+            with open(passport_filepath, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+        except Exception as e:
+            self.app.logger.error(f"Error generating product passport for product {product_id}: {e}")
+            # return None # Or handle error
 
-            img_to_paste.thumbnail((area_width, area_height), Image.Resampling.LANCZOS)
+        # Return the web-accessible path
+        static_base_path = os.path.join('static', 'assets', 'product_passports')
+        passport_web_path = os.path.join(static_base_path, passport_filename).replace("\\", "/")
+        
+        self.app.logger.info(f"Generated product passport for product {product_id} at {passport_filepath}, web path: {passport_web_path}")
+        return passport_web_path
 
-            paste_x = area_coords[0] + (area_width - img_to_paste.width) // 2
-            paste_y = area_coords[1] + (area_height - img_to_paste.height) // 2
+    def get_asset_paths(self, product_id, product_slug, variant_sku_part):
+        """
+        Helper to get expected asset paths for a product/variant.
+        Used if you need to check existence or retrieve paths later.
+        """
+        qr_filename = f"qr_product_{product_id}_{product_slug}.png"
+        label_filename = f"label_product_{product_id}_{variant_sku_part}.png"
+        passport_filename = f"passport_product_{product_id}_{variant_sku_part}.html"
 
-            if img_to_paste.mode == 'RGBA': # Handle transparency
-                base_image.paste(img_to_paste, (paste_x, paste_y), img_to_paste)
-            else:
-                base_image.paste(img_to_paste, (paste_x, paste_y))
-            return True
-        except Exception as e_img:
-            current_app.logger.error(f"Error loading/pasting image {image_to_paste_path}: {e_img}")
-    else:
-        if image_to_paste_path: current_app.logger.warning(f"Image not found for pasting: {image_to_paste_path}")
-    return False
+        qr_web_path = os.path.join('static', 'assets', 'qr_codes', qr_filename).replace("\\", "/")
+        label_web_path = os.path.join('static', 'assets', 'labels', label_filename).replace("\\", "/")
+        passport_web_path = os.path.join('static', 'assets', 'product_passports', passport_filename).replace("\\", "/")
+        
+        return {
+            "qr_code_url": qr_web_path,
+            "label_url": label_web_path,
+            "product_passport_url": passport_web_path
+        }
 
-# --- Product Label Generation ---
-POT_LABEL_CONFIG = {
-    "default": {
-        "avant": {"width": 300, "height": 180, "logo_area": (10, 10, 90, 45)},
-        "arriere": {"width": 300, "height": 180, "qr_code_area": (220, 110, 290, 170)},
-    },
-     "Sachet plastique": {
-        "avant": {"width": 350, "height": 200, "logo_area": (15, 15, 100, 50), "qr_code_area": (260, 130, 340, 190)},
-        "arriere": None,
-    },
-}
-PRODUCT_CONTENT_CONFIG = { # Simplified, should be populated with actual product specific texts per language
-    "default_fr": { "texte_avant_specifique": "Un délice Maison Trüvra.", "ingredients_specifiques": None },
-    "default_en": { "texte_avant_specifique": "A Maison Trüvra delight.", "ingredients_specifiques": None }
-}
-
-
-def generate_product_label_image(product_data_fr, product_data_en, qr_code_relative_path=None):
-    # This function would also need significant updates for bilingual labels.
-    # For simplicity, let's assume it generates a label primarily in French for now,
-    # or you might decide to generate two separate labels (label_fr.png, label_en.png).
-    # Here, we'll just use French data for a single label.
-    label_output_dir = current_app.config['LABELS_OUTPUT_DIR']
-    label_subdir_from_static = current_app.config['LABELS_SUBDIR']
-    font_path = current_app.config.get('LABEL_FONT_PATH', 'arial.ttf')
-    logo_path_abs = current_app.config.get('LABEL_LOGO_PATH')
-
-    os.makedirs(label_output_dir, exist_ok=True)
-
-    product_id = product_data_fr.get("id", "UNKNOWN_ID")
-    label_filename = f"label_{product_id.replace('/', '_').replace(' ', '_')}.png" # Potentially add lang suffix
-    label_filepath_absolute = os.path.join(label_output_dir, label_filename)
-    label_filepath_relative_to_static = os.path.join(label_subdir_from_static, label_filename).replace("\\", "/")
-
-    pot_type = product_data_fr.get("pot_selectionne", "default") # Assuming pot_selectionne is not lang specific
-    label_spec_pot = POT_LABEL_CONFIG.get(pot_type, POT_LABEL_CONFIG["default"])
-
-    # Using French data for the label example
-    product_name_key_fr = product_data_fr.get("name", "default_fr")
-    content_spec_product_fr = PRODUCT_CONTENT_CONFIG.get(product_name_key_fr, PRODUCT_CONTENT_CONFIG["default_fr"])
-
-
-    text_color = (17, 18, 13)
-    bg_color = (245, 238, 222)
-
-    try:
-        font_title = ImageFont.truetype(font_path, 18) if os.path.exists(font_path) else ImageFont.load_default()
-        font_text = ImageFont.truetype(font_path, 12) if os.path.exists(font_path) else ImageFont.load_default()
-        font_small = ImageFont.truetype(font_path, 9) if os.path.exists(font_path) else ImageFont.load_default()
-    except IOError:
-        current_app.logger.warning(f"Label font not found at {font_path}. Using default.")
-        font_title, font_text, font_small = ImageFont.load_default(), ImageFont.load_default(), ImageFont.load_default()
-
-    spec_avant = label_spec_pot["avant"]
-    img_avant = Image.new("RGB", (spec_avant["width"], spec_avant["height"]), bg_color)
-    draw_avant = ImageDraw.Draw(img_avant)
-
-    current_y = 10
-    padding_x = 10
-
-    if spec_avant.get("logo_area") and logo_path_abs:
-        if _paste_image_in_area(img_avant, logo_path_abs, spec_avant["logo_area"]):
-            current_y = max(current_y, spec_avant["logo_area"][3] + 5)
-        else:
-            _draw_text_multiline(draw_avant, "Maison Trüvra", (padding_x, current_y), font_text, spec_avant["width"] - 2 * padding_x, text_color, align="center")
-            current_y += 20
-
-    nom_produit_affiche_fr = product_data_fr.get("name", "Produit")
-    current_y = _draw_text_multiline(draw_avant, nom_produit_affiche_fr, (padding_x, current_y), font_title, spec_avant["width"] - 2 * padding_x, text_color, align="center", spacing=2)
-    current_y += 5
-
-    if content_spec_product_fr.get("texte_avant_specifique"):
-        current_y = _draw_text_multiline(draw_avant, content_spec_product_fr["texte_avant_specifique"], (padding_x, current_y), font_text, spec_avant["width"] - 2 * padding_x, text_color, align="center", spacing=2)
-        current_y += 10
-
-    poids_net_str_fr = f"Poids Net: {product_data_fr.get('poids_net_final_g', 'N/A')}"
-    if product_data_fr.get('poids_net_final_g') not in [None, "N/A"]: poids_net_str_fr += "g"
-
-    poids_bbox = draw_avant.textbbox((0,0), poids_net_str_fr, font=font_text)
-    poids_height = poids_bbox[3] - poids_bbox[1] if len(poids_bbox) == 4 else 12 # default height
-    y_poids = spec_avant["height"] - poids_height - 10
-    _draw_text_multiline(draw_avant, poids_net_str_fr, (padding_x, y_poids), font_text, spec_avant["width"] - 2 * padding_x, text_color, align="center")
-
-    if pot_type == "Sachet plastique" and spec_avant.get("qr_code_area") and qr_code_relative_path:
-        qr_code_abs_path = os.path.join(current_app.static_folder, qr_code_relative_path)
-        _paste_image_in_area(img_avant, qr_code_abs_path, spec_avant["qr_code_area"])
-
-    try:
-        img_avant.save(label_filepath_absolute)
-        current_app.logger.info(f"Label (avant, FR) générée : {label_filepath_absolute}")
-    except Exception as e_save:
-        current_app.logger.error(f"Erreur sauvegarde étiquette avant: {e_save}")
-        return None
-
-    if label_spec_pot.get("arriere"):
-        spec_arriere = label_spec_pot["arriere"]
-        img_arriere = Image.new("RGB", (spec_arriere["width"], spec_arriere["height"]), bg_color)
-        draw_arriere = ImageDraw.Draw(img_arriere)
-        current_y_arr = 10
-
-        ingredients_text_fr = product_data_fr.get("ingredients_affichage", "Voir emballage")
-        if content_spec_product_fr.get("ingredients_specifiques"):
-            ingredients_text_fr = content_spec_product_fr["ingredients_specifiques"]
-        current_y_arr = _draw_text_multiline(draw_arriere, f"Ingrédients: {ingredients_text_fr}", (padding_x, current_y_arr), font_small, spec_arriere["width"] - 2 * padding_x, text_color, spacing=1)
-
-        ddm_str_fr = format_date_french(product_data_fr.get("ddm"))
-        current_y_arr = _draw_text_multiline(draw_arriere, f"DDM: {ddm_str_fr}", (padding_x, current_y_arr), font_small, spec_arriere["width"] - 2 * padding_x, text_color, spacing=1)
-
-        current_y_arr = _draw_text_multiline(draw_arriere, f"ID: {product_id}", (padding_x, current_y_arr), font_small, spec_arriere["width"] - 2 * padding_x, text_color, spacing=1)
-        if product_data_fr.get("numero_lot_manuel"):
-            current_y_arr = _draw_text_multiline(draw_arriere, f"Lot: {product_data_fr['numero_lot_manuel']}", (padding_x, current_y_arr), font_small, spec_arriere["width"] - 2 * padding_x, text_color, spacing=1)
-
-        contact_info = f"Maison Trüvra - {current_app.config.get('CONTACT_EMAIL', 'contact@example.com')}"
-        current_y_arr = _draw_text_multiline(draw_arriere, contact_info, (padding_x, current_y_arr + 5), font_small, spec_arriere["width"] - 2 * padding_x, text_color, spacing=1)
-
-        if spec_arriere.get("qr_code_area") and qr_code_relative_path:
-            qr_code_abs_path = os.path.join(current_app.static_folder, qr_code_relative_path)
-            _paste_image_in_area(img_arriere, qr_code_abs_path, spec_arriere["qr_code_area"])
-
-        label_filepath_arriere_absolute = os.path.join(label_output_dir, f"label_arriere_{product_id.replace('/', '_').replace(' ', '_')}.png")
-        try:
-            img_arriere.save(label_filepath_arriere_absolute)
-            current_app.logger.info(f"Étiquette arrière (FR) générée : {label_filepath_arriere_absolute}")
-        except Exception as e_save_arr:
-            current_app.logger.error(f"Erreur sauvegarde étiquette arrière: {e_save_arr}")
-
-    return label_filepath_relative_to_static
