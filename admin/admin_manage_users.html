@@ -10,9 +10,21 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="admin_styles.css">
 </head>
-<body class="bg-brand-cream text-brand-earth-brown font-inter">
+<body class="bg-brand-cream text-brand-earth-brown font-inter"><!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gérer les Utilisateurs - Admin Maison Trüvra</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="admin_styles.css">
+</head>
+<body id="page-admin-manage-users" class="bg-brand-cream text-brand-earth-brown font-inter">
     <div class="admin-layout">
-<div id="admin-sidebar-placeholder"></div>
+        <div id="admin-sidebar-placeholder"></div>
 
         <main class="admin-main-content">
             <header class="admin-main-header">
@@ -20,8 +32,29 @@
             </header>
 
             <section class="p-6">
+                <div class="admin-card overflow-x-auto mb-8">
+                    <h2 class="text-2xl font-serif text-brand-near-black p-6">Comptes Professionnels en Attente d'Approbation</h2>
+                    <table id="pending-b2b-users-table" class="admin-table">
+                        <thead>
+                            <tr>
+                                <th scope="col">ID</th>
+                                <th scope="col">Email</th>
+                                <th scope="col">Nom Entreprise</th>
+                                <th scope="col">Contact</th>
+                                <th scope="col">Inscrit le</th>
+                                <th scope="col">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pending-b2b-users-table-body">
+                            <tr><td colspan="6" class="text-center py-4">Chargement des demandes en attente...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
                 <div class="admin-card overflow-x-auto">
-                    <h2 class="text-2xl font-serif text-brand-near-black p-6">Liste des Utilisateurs</h2>
+                    <div class="flex justify-between items-center p-6">
+                        <h2 class="text-2xl font-serif text-brand-near-black">Liste de Tous les Utilisateurs</h2>
+                        </div>
                     <table id="users-table" class="admin-table">
                         <thead>
                             <tr>
@@ -29,13 +62,15 @@
                                 <th scope="col">Email</th>
                                 <th scope="col">Nom</th>
                                 <th scope="col">Prénom</th>
+                                <th scope="col">Type</th>
+                                <th scope="col">Statut</th>
                                 <th scope="col">Admin</th>
                                 <th scope="col">Inscrit le</th>
                                 <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="users-table-body">
-                            <tr><td colspan="7" class="text-center py-4">Chargement des utilisateurs...</td></tr>
+                            <tr><td colspan="9" class="text-center py-4">Chargement des utilisateurs...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -48,6 +83,10 @@
                             <p><strong>Email:</strong> <span id="detail-user-email"></span></p>
                             <p><strong>Nom:</strong> <span id="detail-user-nom"></span></p>
                             <p><strong>Prénom:</strong> <span id="detail-user-prenom"></span></p>
+                            <p><strong>Type de compte:</strong> <span id="detail-user-type"></span></p>
+                            <p><strong>Nom Entreprise:</strong> <span id="detail-user-company"></span></p>
+                            <p><strong>Téléphone:</strong> <span id="detail-user-phone"></span></p>
+                            <p><strong>Statut:</strong> <span id="detail-user-status" class="font-semibold"></span></p>
                             <p><strong>Admin:</strong> <span id="detail-user-isadmin"></span></p>
                             <p><strong>Inscrit le:</strong> <span id="detail-user-createdat"></span></p>
                             <h4 class="text-md font-semibold mt-4 pt-2 border-t border-brand-cream">Historique des commandes:</h4>
@@ -65,17 +104,11 @@
         </main>
     </div>
     <div id="admin-toast-container"><div id="admin-message-toast"><p id="admin-message-text"></p></div></div>
-<script src="website/admin/admin_scripts.js"></script> ```
-with the following block, ensuring correct loading order:
-```html
-<script src="js/admin_config.js"></script>
-<script src="js/admin_ui.js"></script>
-<script src="js/admin_api.js"></script>
-<script src="js/admin_auth.js"></script>
-<script src="js/admin_dashboard.js"></script>
-<script src="js/admin_products.js"></script>
-<script src="js/admin_inventory.js"></script>
-<script src="js/admin_users.js"></script>
-<script src="js/admin_orders.js"></script>
-<script src="js/admin_main.js"></script></body>
+    <script src="js/admin_config.js"></script>
+    <script src="js/admin_ui.js"></script>
+    <script src="js/admin_api.js"></script>
+    <script src="js/admin_auth.js"></script>
+    <script src="js/admin_users.js"></script>
+    <script src="js/admin_main.js"></script>
+</body>
 </html>
