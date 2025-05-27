@@ -22,13 +22,18 @@ def init_db():
 
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        nom TEXT,
-        prenom TEXT,
-        is_admin BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            nom TEXT,
+            prenom TEXT,
+            company_name TEXT,      -- For B2B
+            phone_number TEXT,      -- For B2B
+            user_type TEXT DEFAULT 'b2c', -- 'b2c' or 'b2b'
+            is_admin BOOLEAN DEFAULT FALSE,
+            is_approved BOOLEAN DEFAULT TRUE, -- B2C approved by default, B2B might need admin approval
+            status TEXT DEFAULT 'active', -- e.g. 'active', 'pending_approval', 'suspended'
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     ''')
 
