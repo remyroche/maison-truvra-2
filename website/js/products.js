@@ -4,9 +4,7 @@
 let allProducts = []; // Cache for all products, used for client-side filtering if implemented
 let currentProductDetail = null; // Holds the data for the currently viewed product detail
 
-/**
- * Fetches products from the API and displays them on the product listing page.
- * @param {string} [category='all'] - The category to filter by. 'all' fetches all products.// website/js/product.js
+/**// website/js/product.js
 // Handles fetching and displaying products on listing and detail pages.
 
 let allProducts = []; // Cache for all products
@@ -21,37 +19,35 @@ async function fetchAndDisplayProducts(category = 'all') {
     const loadingMessageElement = document.getElementById('products-loading-message');
 
     if (!productsGrid || !loadingMessageElement) {
-        console.error("Éléments de la grille de produits ou message de chargement non trouvés.");
+        console.error("Product grid or loading message elements not found.");
         return;
     }
 
-    loadingMessageElement.textContent = t('Chargement_des_produits'); // i18n
+    loadingMessageElement.textContent = t('Chargement_des_produits');
     loadingMessageElement.style.display = 'block';
     productsGrid.innerHTML = '';
 
     try {
-        // API call now includes lang, makeApiRequest handles adding it
         const products = await makeApiRequest(
             category === 'all' ? '/products' : `/products?category=${encodeURIComponent(category)}`
-        );
+        ); // makeApiRequest now sends 'lang'
 
         if (category === 'all' && products.length > 0) {
             allProducts = products;
         }
 
-        const productsToDisplay = products;
+        const productsToDisplay = products; // API returns localized data
 
         if (productsToDisplay.length === 0) {
-            loadingMessageElement.textContent = t('Aucun_produit_trouve_dans_cette_categorie'); // i18n
-            productsGrid.innerHTML = `<p class="col-span-full text-center text-brand-earth-brown py-8">${t('Aucun_produit_a_afficher')}</p>`; // i18n
+            loadingMessageElement.textContent = t('Aucun_produit_trouve_dans_cette_categorie');
+            productsGrid.innerHTML = `<p class="col-span-full text-center text-brand-earth-brown py-8">${t('Aucun_produit_a_afficher')}</p>`;
         } else {
             loadingMessageElement.style.display = 'none';
             productsToDisplay.forEach(product => {
-                // Product name and description are now localized from the API
                 const stock_quantity = product.stock_quantity !== undefined ? product.stock_quantity : 0;
                 const stockMessage = stock_quantity > 5 ? t('En_stock') : (stock_quantity > 0 ? t('Stock_limite') : t('Epuise'));
                 const stockClass = stock_quantity > 0 ? 'text-brand-deep-sage-green' : 'text-brand-truffle-burgundy';
-
+                // product.name and product.short_description are now localized from the API
                 const productCard = `
                     <div class="product-card">
                         <a href="produit-detail.html?id=${product.id}">
@@ -74,14 +70,11 @@ async function fetchAndDisplayProducts(category = 'all') {
             });
         }
     } catch (error) {
-        loadingMessageElement.textContent = t('Impossible_de_charger_les_produits'); // i18n
+        loadingMessageElement.textContent = t('Impossible_de_charger_les_produits');
         productsGrid.innerHTML = `<p class="col-span-full text-center text-brand-truffle-burgundy py-8">${t('Impossible_de_charger_les_produits')}. ${error.message}</p>`;
     }
 }
 
-/**
- * Sets up event listeners for category filter buttons on the product listing page.
- */
 function setupCategoryFilters() {
     const filterContainer = document.getElementById('product-categories-filter');
     if (filterContainer) {
@@ -94,14 +87,10 @@ function setupCategoryFilters() {
                 fetchAndDisplayProducts(category);
             });
         });
-        // Translate filter button texts if they have data-translate-key
-        translatePageElements();
+        if (typeof translatePageElements === 'function') translatePageElements(); // Translate filter buttons
     }
 }
 
-/**
- * Loads and displays the details of a single product on the product detail page.
- */
 async function loadProductDetail() {
     const params = new URLSearchParams(window.location.search);
     const productId = params.get('id');
@@ -109,27 +98,25 @@ async function loadProductDetail() {
     const contentDiv = document.getElementById('product-detail-content');
 
     if (!productId) {
-        if(loadingDiv) loadingDiv.textContent = t('Aucun_produit_specifie'); // i18n
+        if(loadingDiv) loadingDiv.textContent = t('Aucun_produit_specifie');
         if(contentDiv) contentDiv.style.display = 'none';
         return;
     }
 
     if(loadingDiv) {
-        loadingDiv.textContent = t('Chargement_des_details_du_produit'); // i18n
+        loadingDiv.textContent = t('Chargement_des_details_du_produit');
         loadingDiv.style.display = 'block';
     }
     if(contentDiv) contentDiv.style.display = 'none';
 
     try {
-        // API call now includes lang
-        const product = await makeApiRequest(`/products/${productId}`);
+        const product = await makeApiRequest(`/products/${productId}`); // API sends localized data
         currentProductDetail = product;
 
-        // Product name, descriptions etc. are now localized from API
         document.getElementById('product-name').textContent = product.name;
         const mainImage = document.getElementById('main-product-image');
         mainImage.src = product.image_url_main || 'https://placehold.co/600x500/F5EEDE/7D6A4F?text=Image';
-        mainImage.alt = product.name;
+        mainImage.alt = product.name; // Alt text uses localized name
         mainImage.onerror = () => { mainImage.src = 'https://placehold.co/600x500/F5EEDE/7D6A4F?text=Image+Erreur'; };
 
         document.getElementById('product-short-description').textContent = product.short_description || '';
@@ -139,7 +126,7 @@ async function loadProductDetail() {
         const weightOptionsContainer = document.getElementById('weight-options-container');
         const weightOptionsSelect = document.getElementById('weight-options-select');
         const addToCartButton = document.getElementById('add-to-cart-button');
-        addToCartButton.textContent = t('Ajouter_au_Panier'); // i18n
+        addToCartButton.textContent = t('Ajouter_au_Panier');
 
         if (product.weight_options && product.weight_options.length > 0) {
             weightOptionsContainer.classList.remove('hidden');
@@ -158,10 +145,7 @@ async function loadProductDetail() {
 
             let firstEnabledIndex = -1;
             for(let i=0; i<weightOptionsSelect.options.length; i++) {
-                if(!weightOptionsSelect.options[i].disabled) {
-                    firstEnabledIndex = i;
-                    break;
-                }
+                if(!weightOptionsSelect.options[i].disabled) { firstEnabledIndex = i; break; }
             }
             if(firstEnabledIndex !== -1) weightOptionsSelect.selectedIndex = firstEnabledIndex;
 
@@ -172,27 +156,28 @@ async function loadProductDetail() {
             priceUnit.textContent = '';
             weightOptionsContainer.classList.add('hidden');
              if (product.stock_quantity <= 0) {
-                addToCartButton.textContent = t('Epuise'); // i18n
+                addToCartButton.textContent = t('Epuise');
                 addToCartButton.disabled = true;
                 addToCartButton.classList.replace('btn-gold','btn-secondary');
                 addToCartButton.classList.add('opacity-50', 'cursor-not-allowed');
             }
         } else {
-            priceDisplay.textContent = t('Prix_sur_demande'); // i18n
+            priceDisplay.textContent = t('Prix_sur_demande');
             priceUnit.textContent = '';
             weightOptionsContainer.classList.add('hidden');
-            addToCartButton.textContent = t('Indisponible'); // i18n
+            addToCartButton.textContent = t('Indisponible');
             addToCartButton.disabled = true;
             addToCartButton.classList.add('opacity-50', 'cursor-not-allowed');
         }
 
-        // Localized fields from API
         document.getElementById('product-species').textContent = product.species || 'N/A';
         document.getElementById('product-origin').textContent = product.origin || 'N/A';
         document.getElementById('product-seasonality').textContent = product.seasonality || 'N/A';
         document.getElementById('product-uses').textContent = product.ideal_uses || 'N/A';
-        document.getElementById('product-sensory-description').innerHTML = product.long_description || product.sensory_description || t('Description_sensorielle_a_venir'); // i18n
-        document.getElementById('product-pairing-suggestions').textContent = product.pairing_suggestions || t('Suggestions_daccords_a_venir'); // i18n
+        document.getElementById('product-sensory-description').innerHTML = product.long_description || product.sensory_description || t('Description_sensorielle_a_venir');
+        document.getElementById('product-pairing-suggestions').textContent = product.pairing_suggestions || t('Suggestions_daccords_a_venir');
+        document.getElementById('product-reviews').textContent = t('Aucun_avis_pour_le_moment');
+
 
         const thumbnailGallery = document.getElementById('product-thumbnail-gallery');
         thumbnailGallery.innerHTML = '';
@@ -201,41 +186,32 @@ async function loadProductDetail() {
                 if (typeof thumbUrl === 'string') {
                     const img = document.createElement('img');
                     img.src = thumbUrl;
-                    img.alt = `${product.name} miniature`;
+                    img.alt = `${product.name} miniature`; // Localized alt text
                     img.className = 'w-full h-24 object-cover rounded cursor-pointer hover:opacity-75 transition-opacity';
-                    img.onclick = () => {
-                        const mainImgToUpdate = document.getElementById('main-product-image');
-                        if (mainImgToUpdate) mainImgToUpdate.src = thumbUrl;
-                    };
+                    img.onclick = () => { document.getElementById('main-product-image').src = thumbUrl; };
                     img.onerror = () => { img.style.display='none'; };
                     thumbnailGallery.appendChild(img);
                 }
             });
         }
-        document.getElementById('product-reviews').textContent = t('Aucun_avis_pour_le_moment');
-
 
         if(loadingDiv) loadingDiv.style.display = 'none';
         if(contentDiv) contentDiv.style.display = 'grid';
+        // Translate any static text on this page if not covered by data-translate-key
+        if (typeof translatePageElements === 'function') translatePageElements();
     } catch (error) {
-        if(loadingDiv) loadingDiv.innerHTML = `<p class="text-brand-truffle-burgundy">${t('Impossible_de_charger_les_details_du_produit')} ${error.message}</p>`; // i18n
+        if(loadingDiv) loadingDiv.innerHTML = `<p class="text-brand-truffle-burgundy">${t('Impossible_de_charger_les_details_du_produit')} ${error.message}</p>`;
         if(contentDiv) contentDiv.style.display = 'none';
     }
 }
 
-/**
- * Updates the displayed price and add-to-cart button state based on the selected weight option.
- */
 function updatePriceFromSelection() {
     const weightOptionsSelect = document.getElementById('weight-options-select');
     const priceDisplay = document.getElementById('product-price-display');
     const priceUnit = document.getElementById('product-price-unit');
     const addToCartButton = document.getElementById('add-to-cart-button');
 
-    if (!weightOptionsSelect || !priceDisplay || !priceUnit || !addToCartButton) {
-        console.error("Un ou plusieurs éléments UI pour la sélection de prix sont manquants.");
-        return;
-    }
+    if (!weightOptionsSelect || !priceDisplay || !priceUnit || !addToCartButton) return;
 
     const selectedOption = weightOptionsSelect.options[weightOptionsSelect.selectedIndex];
 
@@ -243,40 +219,30 @@ function updatePriceFromSelection() {
         priceDisplay.textContent = `${parseFloat(selectedOption.dataset.price).toFixed(2)} €`;
         priceUnit.textContent = `/ ${selectedOption.dataset.weightGrams}g`;
         if (parseInt(selectedOption.dataset.stock) <= 0 || selectedOption.disabled) {
-            addToCartButton.textContent = t('Epuise'); // i18n
+            addToCartButton.textContent = t('Epuise');
             addToCartButton.disabled = true;
             addToCartButton.classList.replace('btn-gold','btn-secondary');
             addToCartButton.classList.add('opacity-50', 'cursor-not-allowed');
         } else {
-            addToCartButton.textContent = t('Ajouter_au_Panier'); // i18n
+            addToCartButton.textContent = t('Ajouter_au_Panier');
             addToCartButton.disabled = false;
             addToCartButton.classList.replace('btn-secondary','btn-gold');
             addToCartButton.classList.remove('opacity-50', 'cursor-not-allowed');
         }
     } else if (currentProductDetail && currentProductDetail.base_price === null && (!currentProductDetail.weight_options || currentProductDetail.weight_options.length === 0)) {
-        addToCartButton.textContent = t('Indisponible'); // i18n
+        addToCartButton.textContent = t('Indisponible');
         addToCartButton.disabled = true;
-        addToCartButton.classList.replace('btn-gold','btn-secondary');
-        addToCartButton.classList.add('opacity-50', 'cursor-not-allowed');
     } else if (currentProductDetail && currentProductDetail.base_price !== null) {
         if (currentProductDetail.stock_quantity <= 0) {
-            addToCartButton.textContent = t('Epuise'); // i18n
+            addToCartButton.textContent = t('Epuise');
             addToCartButton.disabled = true;
-            addToCartButton.classList.replace('btn-gold','btn-secondary');
-            addToCartButton.classList.add('opacity-50', 'cursor-not-allowed');
         } else {
-             addToCartButton.textContent = t('Ajouter_au_Panier'); // i18n
+            addToCartButton.textContent = t('Ajouter_au_Panier');
             addToCartButton.disabled = false;
-            addToCartButton.classList.replace('btn-secondary','btn-gold');
-            addToCartButton.classList.remove('opacity-50', 'cursor-not-allowed');
         }
     }
 }
 
-/**
- * Updates the quantity input on the product detail page.
- * @param {number} change - The amount to change the quantity by (+1 or -1).
- */
 function updateDetailQuantity(change) {
     const quantityInput = document.getElementById('quantity-select');
     if (!quantityInput) return;
