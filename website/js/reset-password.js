@@ -15,10 +15,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!token || !email) {
         const messageElement = document.getElementById('reset-password-message');
         if (messageElement) {
-            messageElement.textContent = t('Pro_Token_Ou_Email_Manquant_URL'); // Add key
+            // Ensure t() is available, might need to load translations specifically for this page if main.js doesn't cover it early enough
+            messageElement.textContent = typeof t === 'function' ? t('Pro_Token_Ou_Email_Manquant_URL') : "Token or email missing. Cannot proceed.";
             messageElement.className = 'text-sm my-2 text-brand-truffle-burgundy';
         }
-        if (resetPasswordForm) resetPasswordForm.querySelector('button[type="submit"]').disabled = true;
+        if (resetPasswordForm) {
+            const submitButton = resetPasswordForm.querySelector('button[type="submit"]');
+            if(submitButton) submitButton.disabled = true;
+        }
     }
 
     if (resetPasswordForm) {
@@ -31,23 +35,23 @@ document.addEventListener('DOMContentLoaded', () => {
             const messageElement = document.getElementById('reset-password-message');
             messageElement.className = 'text-sm my-2'; // Reset class
             messageElement.textContent = '';
-            clearFormErrors(resetPasswordForm); // Assumes clearFormErrors is in ui.js
+            if (typeof clearFormErrors === 'function') clearFormErrors(resetPasswordForm);
 
             if (!currentToken || !currentEmail) {
-                messageElement.textContent = t('Pro_Token_Ou_Email_Manquant_Impossible_Reinitialiser'); // Add key
+                messageElement.textContent = typeof t === 'function' ? t('Pro_Token_Ou_Email_Manquant_Impossible_Reinitialiser') : "Invalid token or email. Cannot reset.";
                 messageElement.classList.add('text-brand-truffle-burgundy');
                 return;
             }
             if (newPassword.length < 8) {
-                setFieldError(document.getElementById('new-password'), t('Mot_de_passe_8_caracteres'));
+                if (typeof setFieldError === 'function') setFieldError(document.getElementById('new-password'), typeof t === 'function' ? t('Mot_de_passe_8_caracteres') : "Password too short.");
                 return;
             }
             if (newPassword !== confirmNewPassword) {
-                setFieldError(document.getElementById('confirm-new-password'), t('Mots_de_passe_ne_correspondent_pas'));
+                if (typeof setFieldError === 'function') setFieldError(document.getElementById('confirm-new-password'), typeof t === 'function' ? t('Mots_de_passe_ne_correspondent_pas') : "Passwords do not match.");
                 return;
             }
 
-            showGlobalMessage(t('Pro_Reinitialisation_En_Cours'), 'info'); // Add key
+            if (typeof showGlobalMessage === 'function') showGlobalMessage(typeof t === 'function' ? t('Pro_Reinitialisation_En_Cours') : "Resetting password...", 'info');
             try {
                 const result = await makeApiRequest('/auth/reset-password', 'POST', {
                     token: currentToken,
@@ -56,31 +60,38 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
 
                 if (result.success) {
-                    showGlobalMessage(result.message || t('Pro_MDP_Reinitialise_Succes_Connectez_Vous'), 'success', 8000); // Add key
-                    messageElement.textContent = result.message || t('Pro_MDP_Reinitialise_Succes_Connectez_Vous_Modal'); // Add key
+                    if (typeof showGlobalMessage === 'function') showGlobalMessage(result.message || (typeof t === 'function' ? t('Pro_MDP_Reinitialise_Succes_Connectez_Vous') : "Password reset!"), 'success', 8000);
+                    messageElement.textContent = result.message || (typeof t === 'function' ? t('Pro_MDP_Reinitialise_Succes_Connectez_Vous_Modal') : "Password reset! Redirecting...");
                     messageElement.classList.add('text-green-600');
                     resetPasswordForm.reset();
-                    // Redirect to login page after a delay
+                     if (resetPasswordForm.querySelector('button[type="submit"]')) resetPasswordForm.querySelector('button[type="submit"]').disabled = true;
                     setTimeout(() => {
-                        // Determine if it was a B2B or B2C reset based on context or add a type to token/url
-                        window.location.href = 'professionnels.html'; // Assuming B2B reset
-                    }, 5000);
+                        window.location.href = 'professionnels.html'; // Redirect to B2B login
+                    }, 4000);
                 } else {
-                    messageElement.textContent = result.message || t('Pro_Erreur_Reinitialisation_MDP'); // Add key
+                    messageElement.textContent = result.message || (typeof t === 'function' ? t('Pro_Erreur_Reinitialisation_MDP') : "Error resetting password.");
                     messageElement.classList.add('text-brand-truffle-burgundy');
-                    showGlobalMessage(result.message || t('Pro_Erreur_Reinitialisation_MDP'), 'error');
+                    if (typeof showGlobalMessage === 'function') showGlobalMessage(result.message || (typeof t === 'function' ? t('Pro_Erreur_Reinitialisation_MDP') : "Error resetting password."), 'error');
                 }
             } catch (error) {
-                messageElement.textContent = error.message || t('Erreur_serveur');
+                messageElement.textContent = error.message || (typeof t === 'function' ? t('Erreur_serveur') : "Server error.");
                 messageElement.classList.add('text-brand-truffle-burgundy');
-                showGlobalMessage(error.message || t('Erreur_serveur'), 'error');
+                if (typeof showGlobalMessage === 'function') showGlobalMessage(error.message || (typeof t === 'function' ? t('Erreur_serveur') : "Server error."), 'error');
             }
         });
     }
     // Initial translation of the page elements
-    if (typeof translatePageElements === 'function') {
+    // This ensures that even if main.js hasn't fully initialized translations yet,
+    // this page tries to translate itself.
+    if (typeof loadTranslations === 'function') {
+        loadTranslations(localStorage.getItem('maisonTruvraLang') || 'fr').then(() => {
+            if (typeof translatePageElements === 'function') {
+                translatePageElements();
+            }
+        });
+    } else if (typeof translatePageElements === 'function') {
         translatePageElements();
     } else {
-        console.warn("translatePageElements function not available on reset-password page.");
+         console.warn("Translation functions not available on reset-password page early load.");
     }
 });
