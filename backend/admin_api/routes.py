@@ -18,6 +18,51 @@ ALLOWED_EXTENSIONS = {'pdf'}
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+
+@admin_api_bp.route('/dashboard-stats', methods=['GET'])
+@admin_required
+def get_dashboard_stats():
+    db = None
+    try:
+        db = get_db()
+        cursor = db.cursor()
+
+        # Produits Actifs (Published)
+        cursor.execute("SELECT COUNT(*) FROM products WHERE is_published = TRUE")
+        total_products = cursor.fetchone()[0]
+
+        # Commandes Récentes (dernières 24h)
+        twenty_four_hours_ago = datetime.datetime.now() - datetime.timedelta(hours=24)
+        cursor.execute("SELECT COUNT(*) FROM orders WHERE order_date >= ?", (twenty_four_hours_ago,))
+        recent_orders = cursor.fetchone()[0]
+
+        # Nouveaux Utilisateurs (cette semaine)
+        today = datetime.date.today()
+        start_of_week = today - datetime.timedelta(days=today.weekday())
+        cursor.execute("SELECT COUNT(*) FROM users WHERE created_at >= ?", (start_of_week,))
+        new_users = cursor.fetchone()[0]
+
+        # Mock Notifications (replace with actual notification system if developed)
+        notifications = [
+            {"id": 1, "message": "Nouvelle commande #TRUVRA123 reçue.", "timestamp": datetime.datetime.now().isoformat(), "read": False},
+            {"id": 2, "message": "Stock bas pour 'Huile à la Truffe'.", "timestamp": (datetime.datetime.now() - datetime.timedelta(hours=2)).isoformat(), "read": True}
+        ]
+
+        return jsonify({
+            "success": True,
+            "stats": {
+                "total_products": total_products,
+                "recent_orders": recent_orders,
+                "new_users": new_users
+            },
+            "notifications": notifications # Replace with actual notification fetching
+        })
+    except Exception as e:
+        current_app.logger.error(f"Erreur récupération stats dashboard: {e}", exc_info=True)
+        return jsonify({"success": False, "message": "Erreur serveur."}), 500
+    finally:
+        if db: db.close()
+            
 @admin_api_bp.route('/invoices/upload', methods=['POST'])
 @admin_required
 def upload_invoice():
