@@ -50,7 +50,7 @@
                                 <label for="pro-login-email" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Adresse_e-mail">Adresse e-mail</label>
                                 <input type="email" id="pro-login-email" name="email" class="form-input-pro" required autocomplete="email">
                             </div>
-
+                            
                             <div>
                                 <label for="pro-login-password" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Mot_de_passe">Mot de passe</label>
                                 <input type="password" id="pro-login-password" name="password" class="form-input-pro" required>
@@ -58,25 +58,79 @@
                             </div>
                             <button type="submit" class="btn-primary w-full py-3" data-translate-key="Se_connecter">Se connecter</button>
                             
-                            <div id="forgot-password-modal" class="modal-overlay" style="display:none;">
-                                <div class="modal-content text-left max-w-md">
-                                    <h3 class="text-xl font-serif text-brand-near-black mb-4" data-translate-key="Pro_Reinitialiser_Mot_De_Passe_Titre">Réinitialiser le mot de passe</h3>
-                                    <form id="pro-forgot-password-form" class="space-y-4">
-                                        <p class="text-sm text-brand-earth-brown" data-translate-key="Pro_Instructions_Mot_De_Passe_Oublie">
-                                            Veuillez entrer votre adresse e-mail. Si un compte correspondant existe, nous vous enverrons (théoriquement) un lien pour réinitialiser votre mot de passe.
-                                        </p>
-                                        <div id="pro-forgot-password-message" class="text-sm my-2"></div>
-                                        <div>
-                                            <label for="pro-forgot-email" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Adresse_e-mail">Adresse e-mail</label>
-                                            <input type="email" id="pro-forgot-email" name="email" class="form-input-pro" required>
-                                        </div>
-                                        <div class="flex justify-end space-x-3 pt-3">
-                                            <button type="button" id="pro-cancel-forgot-password" class="btn-secondary text-sm" data-translate-key="Annuler">Annuler</button>
-                                            <button type="submit" class="btn-primary text-sm" data-translate-key="Pro_Envoyer_Lien_Reinitialisation">Envoyer le lien</button>
-                                        </div>
-                                    </form>
+                            </form> </div>
+
+                    <div class="bg-white shadow-xl rounded-lg p-8">
+                        <h2 class="text-2xl font-serif text-brand-near-black mb-5" data-translate-key="Pro_Nouveau_client_Creer_compte">Nouveau Professionnel ? Créez un compte</h2>
+                        <form id="pro-register-form" class="space-y-5">
+                             <div id="pro-register-message" class="text-sm text-brand-truffle-burgundy mb-4"></div>
+                            <div>
+                                <label for="pro-register-company-name" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Nom_entreprise">Nom de l'entreprise</label>
+                                <input type="text" id="pro-register-company-name" name="company_name" class="form-input-pro" required>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label for="pro-register-prenom" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Prenom_contact">Prénom (Contact)</label>
+                                    <input type="text" id="pro-register-prenom" name="prenom" class="form-input-pro" required>
+                                </div>
+                                <div>
+                                    <label for="pro-register-nom" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Nom_contact">Nom (Contact)</label>
+                                    <input type="text" id="pro-register-nom" name="nom" class="form-input-pro" required>
                                 </div>
                             </div>
+                            <div>
+                                <label for="pro-register-email" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Adresse_e-mail">Adresse e-mail</label>
+                                <input type="email" id="pro-register-email" name="email" class="form-input-pro" required autocomplete="email">
+                            </div>
+                            <div>
+                                <label for="pro-register-phone" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Telephone_optionnel">Téléphone (Optionnel)</label>
+                                <input type="tel" id="pro-register-phone" name="phone_number" class="form-input-pro" autocomplete="tel">
+                            </div>
+                            <div>
+                                <label for="pro-register-password" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Mot_de_passe">Mot de passe</label>
+                                <input type="password" id="pro-register-password" name="password" class="form-input-pro" required>
+                            </div>
+                            <div>
+                                <label for="pro-register-confirm-password" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Confirmer_mot_de_passe">Confirmer mot de passe</label>
+                                <input type="password" id="pro-register-confirm-password" name="confirm_password" class="form-input-pro" required>
+                            </div>
+                            <button type="submit" class="btn-secondary w-full py-3" data-translate-key="Creer_un_compte_professionnel">Créer un compte professionnel</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div id="forgot-password-modal" class="modal-overlay" style="display:none;">
+                    <div class="modal-content text-left max-w-md">
+                        <h3 class="text-xl font-serif text-brand-near-black mb-4" data-translate-key="Pro_Reinitialiser_Mot_De_Passe_Titre">Réinitialiser le mot de passe</h3>
+                        <form id="pro-forgot-password-form" class="space-y-4">
+                            <p class="text-sm text-brand-earth-brown" data-translate-key="Pro_Instructions_Mot_De_Passe_Oublie">
+                                Veuillez entrer votre adresse e-mail. Si un compte correspondant existe, nous vous enverrons (théoriquement) un lien pour réinitialiser votre mot de passe.
+                            </p>
+                            <div id="pro-forgot-password-message" class="text-sm my-2"></div>
+                            <div>
+                                <label for="pro-forgot-email" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Adresse_e-mail">Adresse e-mail</label>
+                                <input type="email" id="pro-forgot-email" name="email" class="form-input-pro" required>
+                            </div>
+                            <div class="flex justify-end space-x-3 pt-3">
+                                <button type="button" id="pro-cancel-forgot-password" class="btn-secondary text-sm" data-translate-key="Annuler">Annuler</button>
+                                <button type="submit" class="btn-primary text-sm" data-translate-key="Pro_Envoyer_Lien_Reinitialisation">Envoyer le lien</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="max-w-3xl mx-auto text-lg text-brand-earth-brown space-y-8 text-center leading-relaxed mt-12">
+                    <p data-translate-key="Pro_Texte_Intro1">Fruit de notre artisanat méticuleux et de notre environnement contrôlé, nos truffes sont récoltées au moment précis où elles atteignent leur pic de maturité aromatique.</p>
+                    <p data-translate-key="Pro_Texte_Intro2">Nous proposons aux professionnels de la gastronomie des truffes melanosporum fraîches d'une qualité exceptionnelle, idéales pour sublimer vos créations culinaires.</p>
+                    <div class="mt-12 pt-2">
+                        <p class="mb-6" data-translate-key="Pro_Texte_Contact_Demande">Pour toute demande de tarifs, informations sur les disponibilités ou partenariats, veuillez nous contacter directement :</p>
+                        <a href="mailto:professionnels@maisontruvra.com" class="text-2xl text-brand-classic-gold hover:text-brand-earth-brown font-semibold block mt-4 transition-colors duration-300">professionnels@maisontruvra.com</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+                
                     <div class="bg-white shadow-xl rounded-lg p-8">
                         <h2 class="text-2xl font-serif text-brand-near-black mb-5" data-translate-key="Pro_Nouveau_client_Creer_compte">Nouveau Professionnel ? Créez un compte</h2>
                         <form id="pro-register-form" class="space-y-5">
