@@ -4,82 +4,98 @@ from dotenv import load_dotenv
 
 load_dotenv() # Load environment variables from .env file
 
-class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY') or 'your-very-secret-and-hard-to-guess-key'
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
-        'sqlite:///' + os.path.join(os.path.abspath(os.path.dirname(__file__)), 'app.db')
-    SQLALCHEMY_TRACK_MODIFICATIONS = False# backend/config.py
-import os
+class Config:import os
 
 class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY') or 'votre_cle_secrete_par_defaut_tres_difficile_a_deviner'
-    DATABASE_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..', 'maison_truvra_database.db')
+    BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..')) # Points to the project root
+
+    SECRET_KEY = os.environ.get('SECRET_KEY') or 'your_very_secret_key_here' # Change this in production!
     
-    # JWT Configuration
-    JWT_EXPIRATION_HOURS = 24 # Token validity period
-    PASSWORD_RESET_TOKEN_EXPIRY_MINUTES = 30 # For password reset links
+    # Database configuration
+    DATABASE_PATH = os.path.join(BASE_DIR, 'db', 'maison_truvra.db')
+    SQLALCHEMY_DATABASE_URI = f'sqlite:///{DATABASE_PATH}'
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
 
-    # Directory for storing generated/uploaded invoices
-    # Ensure this directory exists and the application has write permissions.
-    # It's often better to place this outside the application's code directory.
-    INVOICES_UPLOAD_DIR = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..', 'uploaded_invoices_b2b')
-    # Make sure this path is correct and the directory is writable by the Flask app user.
-    # For production, consider using a dedicated, persistent storage solution (e.g., S3, Google Cloud Storage).
+    # File Uploads / Generation Paths
+    # Ensure these directories exist or are created by your application startup logic
+    UPLOAD_FOLDER = os.path.join(BASE_DIR, 'website', 'static', 'uploads', 'products')
+    QR_CODES_OUTPUT_DIR = os.path.join(BASE_DIR, 'website', 'static', 'assets', 'qr_codes')
+    PRODUCT_PASSPORTS_OUTPUT_DIR = os.path.join(BASE_DIR, 'website', 'static', 'assets', 'product_passports')
+    LABELS_OUTPUT_DIR = os.path.join(BASE_DIR, 'website', 'static', 'assets', 'labels')
+    INVOICES_UPLOAD_DIR = os.path.join(BASE_DIR, 'invoices', 'professional') # Server-side storage for generated invoices
 
-    # Email for Admin Notifications (e.g., new B2B registration)
-    ADMIN_EMAIL_NOTIFICATIONS = os.environ.get('ADMIN_EMAIL_NOTIFICATIONS') or 'admin@maisontruvra.com' # Replace with actual admin email
+    # Paths for assets used in generation (e.g., PDFs)
+    LOGO_PATH = os.path.join(BASE_DIR, 'website', 'static', 'images', 'logo', 'logo-TRUVRA-noir.png')
+    FONT_PATH_REGULAR = os.path.join(BASE_DIR, 'website', 'static', 'fonts', 'Montserrat', 'Montserrat-Regular.ttf') # Example path
+    FONT_PATH_BOLD = os.path.join(BASE_DIR, 'website', 'static', 'fonts', 'Montserrat', 'Montserrat-Bold.ttf') # Example path
+    
+    # JWT Configuration (Example)
+    JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY') or 'another_super_secret_jwt_key' # Change this!
+    JWT_ACCESS_TOKEN_EXPIRES = 3600 # 1 hour
+    JWT_REFRESH_TOKEN_EXPIRES = 2592000 # 30 days
 
-    # --- Email Server Configuration (Placeholder - Configure for your provider) ---
-    # These should ideally be set via environment variables for security.
-    MAIL_SERVER = os.environ.get('MAIL_SERVER') # e.g., 'smtp.sendgrid.net' or 'smtp.gmail.com'
-    MAIL_PORT = int(os.environ.get('MAIL_PORT') or 587) # 587 for TLS, 465 for SSL
-    MAIL_USE_TLS = os.environ.get('MAIL_USE_TLS', 'true').lower() in ['true', '1', 't']
-    MAIL_USE_SSL = os.environ.get('MAIL_USE_SSL', 'false').lower() in ['true', '1', 't']
-    MAIL_USERNAME = os.environ.get('MAIL_USERNAME') # Your email account username
-    MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD') # Your email account password or app-specific password
-    MAIL_SENDER_ADDRESS = os.environ.get('MAIL_SENDER_ADDRESS') or 'noreply@maisontruvra.com' # Default sender
+    # Email Configuration (Placeholder - Configure with your email service)
+    MAIL_SERVER = os.environ.get('MAIL_SERVER') or 'smtp.example.com'
+    MAIL_PORT = int(os.environ.get('MAIL_PORT') or 587)
+    MAIL_USE_TLS = os.environ.get('MAIL_USE_TLS') is not None
+    MAIL_USERNAME = os.environ.get('MAIL_USERNAME')
+    MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
+    MAIL_DEFAULT_SENDER = os.environ.get('MAIL_DEFAULT_SENDER') or 'noreply@maisontruvra.com'
 
-    # --- Default Invoice Template Data ---
-    # These can be overridden by settings stored in the database (app_settings table)
-    # Paths for logos should be relative to the `generate_professional_invoice.py` script if used directly by it,
-    # or an absolute path, or handled by Flask's static files if served through the app.
-    # For generate_professional_invoice.py, it expects paths relative to its own location.
-    INVOICE_COMPANY_NAME = "Maison Trüvra SARL"
-    INVOICE_COMPANY_ADDRESS_LINES = [
-        "123 Rue de la Truffe",
-        "75001 Paris, France"
+    # Stripe API Keys (Placeholder)
+    STRIPE_PUBLISHABLE_KEY = os.environ.get('STRIPE_PUBLISHABLE_KEY')
+    STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY')
+    STRIPE_ENDPOINT_SECRET = os.environ.get('STRIPE_ENDPOINT_SECRET') # For webhook
+
+    # Application specific settings
+    ITEMS_PER_PAGE = 10
+    B2B_APPROVAL_REQUIRED = True
+
+    # Ensure directories exist
+    DIRECTORIES_TO_CREATE = [
+        DATABASE_PATH.replace(os.path.basename(DATABASE_PATH), ''), # DB directory
+        UPLOAD_FOLDER,
+        QR_CODES_OUTPUT_DIR,
+        PRODUCT_PASSPORTS_OUTPUT_DIR,
+        LABELS_OUTPUT_DIR,
+        INVOICES_UPLOAD_DIR
     ]
-    INVOICE_COMPANY_SIRET = "SIRET: 123 456 789 00012"
-    INVOICE_COMPANY_VAT_NUMBER = "TVA Intracom.: FR 00 123456789"
-    INVOICE_COMPANY_CONTACT_INFO = "contact@maisontruvra.com | +33 1 23 45 67 89"
-    # The logo path in generate_professional_invoice.py is currently "../website/image_6be700.png"
-    # This needs to be consistent or made configurable.
-    # For now, let generate_professional_invoice.py use its hardcoded relative path or make it an absolute path here.
-    INVOICE_COMPANY_LOGO_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..', 'website', 'image_6be700.png') # Example absolute path
-    
-    INVOICE_FOOTER_TEXT = "Merci de votre confiance. Conditions de paiement : 30 jours net."
-    INVOICE_BANK_DETAILS = "Banque: XYZ | IBAN: FR76 XXXX XXXX XXXX XXXX XXXX XXX | BIC: XYZAFRPP"
 
+    @staticmethod
+    def create_directories():
+        for directory in Config.DIRECTORIES_TO_CREATE:
+            if directory and not os.path.exists(directory): # Check if directory string is not empty
+                try:
+                    os.makedirs(directory, exist_ok=True)
+                    print(f"Created directory: {directory}")
+                except OSError as e:
+                    print(f"Error creating directory {directory}: {e}")
+
+
+# Call this once at application startup, e.g., in run.py or backend/__init__.py
+Config.create_directories()
 
 class DevelopmentConfig(Config):
     DEBUG = True
-    # SQLALCHEMY_ECHO = True # If using SQLAlchemy
+    # SQLALCHEMY_ECHO = True # Useful for debugging SQL queries
 
 class ProductionConfig(Config):
     DEBUG = False
-    # Add production specific settings, e.g., different database URI, logging levels
+    # Add any production specific settings here
+    # For example, more secure secrets, different database URI if not SQLite
 
-# Choose the configuration based on an environment variable, e.g., FLASK_ENV
+class TestingConfig(Config):
+    TESTING = True
+    SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:' # Use in-memory SQLite for tests
+    DATABASE_PATH = ':memory:'
+    WTF_CSRF_ENABLED = False # Disable CSRF forms for testing
+    # Ensure test-specific directories if needed, or mock file system operations
+
 config_by_name = dict(
-    development=DevelopmentConfig,
-    production=ProductionConfig,
-    default=DevelopmentConfig
+    dev=DevelopmentConfig,
+    test=TestingConfig,
+    prod=ProductionConfig
 )
 
-def get_config():
-    env = os.getenv('FLASK_ENV', 'default')
-    return config_by_name.get(env, DevelopmentConfig)
-
-# When initializing your Flask app:
-# from .config import get_config
-# app.config.from_object(get_config())
+def get_config_by_name(config_name):
+    return config_by_name.get(config_name, DevelopmentConfig)
