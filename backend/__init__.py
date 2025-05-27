@@ -3,6 +3,18 @@ from flask import Flask, request, current_app # Added request, current_app
 from flask_cors import CORS
 import os
 import logging
+import os
+from flask import Flask, send_from_directory, current_app, Blueprint # Added Blueprint
+from werkzeug.utils import safe_join # Import safe_join
+from .config import Config
+from .database import db, init_db, populate_initial_data, User # Added User for Point 3
+# ... (import blueprints)
+from .admin_api import admin_api_bp_for_app  # Renamed import for clarity if needed, see point 4
+from .auth import auth_bp
+from .products import products_bp
+from .orders import orders_bp
+from .newsletter import newsletter_bp
+from .professional import professional_bp
 from flask import g 
 
 from .config import AppConfig, configure_asset_paths # Import new helper
@@ -27,39 +39,69 @@ def serve_passport(filename):
 
     return send_from_directory(passport_dir, filename)
     
-def create_app(config_class=AppConfig):
-    app = Flask(__name__, static_folder=os.path.join(os.path.dirname(os.path.dirname(__file__)), 'website', 'static_assets'))
-    # Configure static_folder to point to a directory at the project root, e.g., 'project_root/static_assets'
-    # Or, if you prefer 'backend/static': static_folder='static' (relative to backend package)
-    # Or, if 'website' serves its own static files and admin assets are separate:
-    # static_url_path='/admin_assets', static_folder='admin_assets' (inside backend or project root)# backend/__init__.py
-from flask import Flask, request, current_app, g, jsonify, send_from_directory # Added jsonify, send_from_directory
-from flask_cors import CORS
-import os
-import logging
-import jwt # Ensure jwt is imported
-
-from .config import AppConfig, configure_asset_paths
-from .database import init_db, populate_initial_data, init_db_command
-
-def create_app(config_class=AppConfig):
-    app = Flask(__name__,
-                static_folder=os.path.join(os.path.dirname(os.path.dirname(__file__)), 'website', 'static_assets'),
-                instance_relative_config=True) # Added instance_relative_config
-
+def create_app(config_class=Config):
+    app = Flask(__name__, static_folder='../static_assets', static_url_path='/static_assets') # Example static folder
     app.config.from_object(config_class)
-    # Ensure UPLOAD_FOLDER is configured, e.g., in instance folder
-    app.config.setdefault('INVOICES_UPLOAD_DIR', os.path.join(app.instance_path, 'invoices_uploads'))
-    os.makedirs(app.config['INVOICES_UPLOAD_DIR'], exist_ok=True)
 
+    db.init_app(app)
 
+    # Ensure populate_initial_data is idempotent or called carefully
     with app.app_context():
-        configure_asset_paths(app)
+        init_db() # Creates tables if they don't exist
 
-    try:
-        os.makedirs(app.instance_path, exist_ok=True)
-    except OSError:
-        pass
+        # Check if admin user exists before populating. This makes it safer to run multiple times.
+        admin_user = User.query.filter_by(username=app.config.get("ADMIN_USERNAME", "admin")).first()
+        if not admin_user:
+            populate_initial_data()
+        else:
+            print("Admin user already exists. Skipping initial data population.")
+
+
+    # Register blueprints
+    app.register_blueprint(admin_api_bp_for_app, url_prefix='/api/admin') # Use the blueprint from admin_api/__init__.py
+    app.register_blueprint(auth_bp, url_prefix='/api/auth')
+    app.register_blueprint(products_bp, url_prefix='/api/products')
+    app.register_blueprint(orders_bp, url_prefix='/api/orders')
+    app.register_blueprint(newsletter_bp, url_prefix='/api/newsletter')
+    app.register_blueprint(professional_bp, url_prefix='/api/professional')
+    # app.register_blueprint(inventory_bp, url_prefix='/api/inventory')
+
+
+    # Route for serving passport PDFs
+    @app.route('/passports/<filename>')
+    def serve_passport(filename):
+        # Ensure PASSPORTS_OUTPUT_DIR is an absolute path or correctly relative to the app root
+        # For example, if PASSPORTS_OUTPUT_DIR is 'instance/passports'
+        # and app.instance_path is '/path/to/your/instance'
+        # passports_dir = safe_join(current_app.instance_path, current_app.config['PASSPORTS_OUTPUT_DIR']) # This assumes PASSPORTS_OUTPUT_DIR is relative to instance path
+        
+        # If PASSPORTS_OUTPUT_DIR is defined as an absolute path in config:
+        # passports_dir = current_app.config['PASSPORTS_OUTPUT_DIR']
+
+        # Assuming PASSPORTS_OUTPUT_DIR is relative to the project root (backend folder's parent)
+        # and the app is created from the 'backend' directory.
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        passports_dir = safe_join(project_root, current_app.config['PASSPORTS_OUTPUT_DIR'])
+
+        if passports_dir is None:
+            # Log this issue, as safe_join can return None if path seems malicious
+            return "Invalid passport directory configuration", 500
+            
+        try:
+            # The filename itself should be sanitized by werkzeug's send_from_directory
+            # but it's good practice to ensure filename isn't trying to escape.
+            # send_from_directory handles this, but an extra check doesn't hurt if you are paranoid.
+            # if ".." in filename or filename.startswith("/"):
+            #     return "Invalid filename", 400 # Or raise NotFound for security
+            
+            return send_from_directory(passports_dir, filename, as_attachment=False)
+        except FileNotFoundError:
+            return "Passport not found", 404
+        except Exception as e:
+            current_app.logger.error(f"Error serving passport {filename}: {e}")
+            return "Error serving file", 500
+
+    return app
 
     CORS(app, resources={r"/api/*": {"origins": "*"}})
 
