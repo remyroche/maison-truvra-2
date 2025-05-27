@@ -18,6 +18,52 @@ def get_localized_field(lang, field_name_fr, field_name_en, row_data):
         return row_data[field_name_en]
     return row_data.get(field_name_fr) # Default to French
 
+
+# Example for backend/products/routes.py
+# Add to top: from ..auth.routes import professional_required (or a general login_required)
+
+@products_bp.route('/<string:product_id>/reviews', methods=['GET'])
+def get_product_reviews(product_id):
+    # Fetch approved reviews for a product, with pagination
+    db = get_db()
+    cursor = db.cursor()
+    # Add pagination later if needed
+    cursor.execute("""
+        SELECT pr.review_id, pr.rating, pr.comment_text, pr.review_date, u.prenom as user_prenom
+        FROM product_reviews pr
+        LEFT JOIN users u ON pr.user_id = u.id
+        WHERE pr.product_id = ? AND pr.is_approved = TRUE
+        ORDER BY pr.review_date DESC
+    """, (product_id,))
+    reviews = [dict(row) for row in cursor.fetchall()]
+    db.close()
+    return jsonify({"success": True, "reviews": reviews})
+
+@products_bp.route('/<string:product_id>/reviews', methods=['POST'])
+# @login_required # Decorator to ensure user is logged in (create this in auth/routes.py)
+def submit_product_review(product_id):
+    # Needs g.current_user_id from the login_required decorator
+    user_id = getattr(g, 'current_user_id', None)
+    if not user_id:
+         return jsonify({"success": False, "message": "Vous devez être connecté pour laisser un avis."}), 401
+
+    data = request.get_json()
+    rating = data.get('rating')
+    comment = data.get('comment_text', '')
+
+    if not rating or not (1 <= int(rating) <= 5):
+        return jsonify({"success": False, "message": "Une note entre 1 et 5 est requise."}), 400
+
+    db = get_db()
+    cursor = db.cursor()
+    # Optional: Check if user already reviewed this product
+    cursor.execute("INSERT INTO product_reviews (product_id, user_id, rating, comment_text) VALUES (?, ?, ?, ?)",
+                   (product_id, user_id, int(rating), comment))
+    db.commit()
+    db.close()
+    # In a real app, new reviews might go into a moderation queue (is_approved = FALSE by default)
+    return jsonify({"success": True, "message": "Avis soumis avec succès. Il sera visible après approbation."}), 201
+    
 @products_bp.route('', methods=['GET'])
 def get_all_products():
     db = None
