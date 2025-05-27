@@ -9,6 +9,13 @@ from ..database import get_db, record_stock_movement
 from ..auth.routes import admin_required
 from ..services.invoice_service import generate_invoice_pdf_to_file, calculate_invoice_totals_service # New import
 import json # Ensure json is imported
+from flask import jsonify, request, current_app
+from . import admin_api_bp_for_app as admin_api_bp # Use an alias if preferred, or same name
+
+from backend.models import Product, Order, User # Adjust imports as per your model locations
+from backend.database import db
+from backend.auth.decorators import admin_required # Assuming decorator path
+from backend.services.asset_service import generate_product_assets, update_product_assets
 
 admin_api_bp = Blueprint('admin_api_bp_routes', __name__) # KEEP THIS NAME CONSISTENT
 
