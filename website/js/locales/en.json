@@ -358,4 +358,5 @@
   "Pro_MDP_Reinitialise_Succes_Connectez_Vous": "Password reset successfully! You can now log in.",
   "Pro_MDP_Reinitialise_Succes_Connectez_Vous_Modal": "Your password has been changed. Redirecting to login...",
   "Pro_Erreur_Reinitialisation_MDP": "Error resetting password. The link may be invalid or expired."
+  "B2B_ACCOUNT_NEEDS_APPROVAL": "An administrator must validate your account."
 }
