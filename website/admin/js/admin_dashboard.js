@@ -6,96 +6,163 @@
     <title>Admin Dashboard - Maison Trüvra</title>
     <link href="https://cdn.tailwindcss.com" rel="stylesheet">
     <link rel="stylesheet" href="admin_styles.css">
-    <link rel="icon" href="../assets/favicon.ico" type="image/x-icon">
-    <link rel="shortcut icon" href="../assets/favicon.png" type="image/png">
-    <link rel="apple-touch-icon" sizes="180x180" href="../assets/apple-touch-icon.png">
-    <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="../assets/favicon-16x16.png">
-</head>
-<body class="bg-gray-100 font-sans">
-    <div class="flex h-screen">
-        <div id="adminSidebarContainer" class="w-64 bg-gray-800 text-white p-5 space-y-6">
-            <div class="text-center py-4">
-                <a href="admin_dashboard.html" class="text-2xl font-semibold hover:text-gold-500 transition-colors">Maison Trüvra</a>
-                <p class="text-sm text-gray-400">Admin Panel</p>
-            </div>
-            <nav class="space-y-2">
-                <a href="admin_dashboard.html" class="block py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 hover:text-gold-400">Dashboard</a>
-                <a href="admin_manage_products.html" class="block py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 hover:text-gold-400">Manage Products</a>
-                <a href="admin_manage_orders.html" class="block py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 hover:text-gold-400">Manage Orders</a>
-                <a href="admin_manage_users.html" class="block py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 hover:text-gold-400">Manage Users</a>
-                <a href="admin_manage_inventory.html" class="block py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 hover:text-gold-400">Manage Inventory</a>
-                <a href="admin_manage_invoices.html" class="block py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 hover:text-gold-400">Manage Invoices (B2B)</a>
-                <a href="#" id="adminLogoutLink" class="block py-2.5 px-4 rounded transition duration-200 hover:bg-red-600 hover:text-white">Logout</a>
-            </nav>
-        </div>
+    <link rel="icon" href="../assets/favicon.ico" type="image/x-icon">// Admin Dashboard JavaScript
+document.addEventListener('DOMContentLoaded', function () {
+    console.log("Admin Dashboard script loaded.");
 
-        <div class="flex-1 flex flex-col overflow-hidden">
-            <header class="bg-white shadow-md p-4">
-                <div class="flex justify-between items-center">
-                    <h1 class="text-2xl font-semibold text-gray-800">Dashboard Overview</h1>
-                    <div id="adminUserDisplay" class="text-sm text-gray-600">
-                        </div>
-                </div>
-            </header>
-            
-            <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-6">
-                <div class="container mx-auto">
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-                        <div class="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
-                            <h3 class="text-lg font-semibold text-gray-600 mb-1">Total Sales</h3>
-                            <p id="stats-total-sales" class="text-3xl font-bold text-green-600">Loading...</p>
-                        </div>
-                        <div class="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
-                            <h3 class="text-lg font-semibold text-gray-600 mb-1">Recent Orders</h3>
-                            <p id="stats-recent-orders-count" class="text-3xl font-bold text-blue-600">Loading...</p>
-                            <p class="text-xs text-gray-500">(Last 7 days)</p>
-                        </div>
-                        <div class="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
-                            <h3 class="text-lg font-semibold text-gray-600 mb-1">New Users</h3>
-                            <p id="stats-new-users-count" class="text-3xl font-bold text-purple-600">Loading...</p>
-                             <p class="text-xs text-gray-500">(Last 7 days)</p>
-                        </div>
-                        <div class="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
-                            <h3 class="text-lg font-semibold text-gray-600 mb-1">Total Products</h3>
-                            <p id="stats-total-products" class="text-3xl font-bold text-yellow-600">Loading...</p>
-                        </div>
-                        <div class="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition-shadow">
-                            <h3 class="text-lg font-semibold text-gray-600 mb-1">Pending B2B Approvals</h3>
-                            <p id="stats-pending-b2b-approvals" class="text-3xl font-bold text-red-600">Loading...</p>
-                        </div>
-                    </div>
+    // Function to fetch and display statistics
+    async function fetchStats() {
+        try {
+            // --- Total Users ---
+            const usersResponse = await fetch('/api/admin/stats/total_users', {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${getAdminAuthToken()}`, // Implement getAdminAuthToken()
+                    'Content-Type': 'application/json'
+                }
+            });
+            if (usersResponse.ok) {
+                const usersData = await usersResponse.json();
+                const totalUsersElement = document.getElementById('total-users-stat');
+                if (totalUsersElement) totalUsersElement.textContent = usersData.total_users || '0';
+            } else {
+                console.error('Failed to fetch total users:', usersResponse.status);
+            }
 
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div class="bg-white p-6 rounded-lg shadow">
-                            <h3 class="text-xl font-semibold text-gray-700 mb-4">Recent Activity</h3>
-                            <ul id="recentActivityList" class="space-y-3 text-sm text-gray-600">
-                                <li>New order #1234 placed by user@example.com</li>
-                                <li>Product "Black Truffle" stock updated.</li>
-                                <li>New professional user "Pro User Inc." registered.</li>
-                                <li>Invoice INV-2024-001 generated.</li>
-                            </ul>
-                        </div>
-                        <div class="bg-white p-6 rounded-lg shadow">
-                            <h3 class="text-xl font-semibold text-gray-700 mb-4">Quick Links</h3>
-                            <div class="space-y-2">
-                                <a href="admin_manage_products.html#addProductForm" class="block text-blue-600 hover:underline">Add New Product</a>
-                                <a href="admin_manage_users.html?filter=pending_approval" class="block text-blue-600 hover:underline">View Pending Approvals</a>
-                                <a href="admin_manage_orders.html" class="block text-blue-600 hover:underline">View All Orders</a>
-                            </div>
-                        </div>
-                    </div>
+            // --- Total Products ---
+            const productsResponse = await fetch('/api/admin/stats/total_products', {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${getAdminAuthToken()}` }
+            });
+            if (productsResponse.ok) {
+                const productsData = await productsResponse.json();
+                const totalProductsElement = document.getElementById('total-products-stat');
+                if (totalProductsElement) totalProductsElement.textContent = productsData.total_products || '0';
+            } else {
+                console.error('Failed to fetch total products:', productsResponse.status);
+            }
 
-                </div>
-            </main>
-        </div>
-    </div>
+            // --- Total Orders ---
+            const ordersResponse = await fetch('/api/admin/stats/total_orders', {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${getAdminAuthToken()}` }
+            });
+            if (ordersResponse.ok) {
+                const ordersData = await ordersResponse.json();
+                const totalOrdersElement = document.getElementById('total-orders-stat');
+                if (totalOrdersElement) totalOrdersElement.textContent = ordersData.total_orders || '0';
+            } else {
+                console.error('Failed to fetch total orders:', ordersResponse.status);
+            }
 
-    <div id="adminToast" class="fixed bottom-5 right-5 bg-gray-800 text-white py-3 px-5 rounded-lg shadow-xl text-sm z-50 transition-opacity duration-300 opacity-0">
-        <span id="adminToastMessage">Default Toast Message</span>
-    </div>
+            // --- Total Revenue ---
+            const revenueResponse = await fetch('/api/admin/stats/total_revenue', {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${getAdminAuthToken()}` }
+            });
+            if (revenueResponse.ok) {
+                const revenueData = await revenueResponse.json();
+                const totalRevenueElement = document.getElementById('total-revenue-stat');
+                if (totalRevenueElement) {
+                    totalRevenueElement.textContent = `€${(revenueData.total_revenue || 0).toFixed(2)}`;
+                }
+            } else {
+                console.error('Failed to fetch total revenue:', revenueResponse.status);
+            }
 
-    <script type="module" src="js/admin_main.js"></script>
-    <script type="module" src="js/admin_dashboard.js"></script> 
-</body>
-</html>
+            // Placeholder for Recent Orders and Recent Reviews
+            fetchRecentOrders();
+            fetchRecentReviews();
+
+        } catch (error) {
+            console.error('Error fetching dashboard stats:', error);
+            // Display a generic error message on the dashboard if needed
+            const errorElement = document.getElementById('dashboard-error-message');
+            if(errorElement) errorElement.textContent = "Could not load dashboard statistics.";
+        }
+    }
+
+    function getAdminAuthToken() {
+        // Implement this function to retrieve the admin's authentication token
+        // This might be from localStorage, a cookie, or another source
+        return localStorage.getItem('adminAuthToken') || 'admin_token_placeholder'; // Fallback for testing
+    }
+
+    // Placeholder function to fetch recent orders
+    async function fetchRecentOrders() {
+        const recentOrdersList = document.getElementById('recent-orders-list');
+        if (!recentOrdersList) return;
+        
+        // Example: Fetch last 5 orders
+        // const response = await fetch('/api/admin/orders?limit=5&sort=desc', { headers: { 'Authorization': `Bearer ${getAdminAuthToken()}` }});
+        // if (response.ok) {
+        //     const orders = await response.json();
+        //     recentOrdersList.innerHTML = ''; // Clear existing
+        //     orders.forEach(order => {
+        //         const listItem = document.createElement('li');
+        //         listItem.className = 'list-group-item d-flex justify-content-between align-items-center';
+        //         listItem.innerHTML = `
+        //             <span>Order #${order.id} - ${order.customer_name || 'N/A'}</span>
+        //             <span class="badge bg-primary rounded-pill">${order.status}</span>
+        //             <span class="text-muted">${new Date(order.order_date).toLocaleDateString()}</span>
+        //             <a href="admin_manage_orders.html?order_id=${order.id}" class="btn btn-sm btn-outline-secondary">View</a>
+        //         `;
+        //         recentOrdersList.appendChild(listItem);
+        //     });
+        // } else {
+        //     recentOrdersList.innerHTML = '<li class="list-group-item">Could not load recent orders.</li>';
+        // }
+        recentOrdersList.innerHTML = '<li class="list-group-item">Recent orders functionality placeholder.</li>'; // Placeholder
+    }
+
+    // Placeholder function to fetch recent reviews
+    async function fetchRecentReviews() {
+        const recentReviewsList = document.getElementById('recent-reviews-list');
+        if (!recentReviewsList) return;
+        // Example: Fetch last 5 pending reviews
+        // const response = await fetch('/api/admin/reviews?status=pending&limit=5', { headers: { 'Authorization': `Bearer ${getAdminAuthToken()}` }});
+        // if (response.ok) {
+        //     const reviews = await response.json();
+        //     recentReviewsList.innerHTML = ''; // Clear existing
+        //     reviews.forEach(review => {
+        //         const listItem = document.createElement('li');
+        //         listItem.className = 'list-group-item';
+        //         listItem.innerHTML = `
+        //             <p><strong>${review.product_name}</strong> by ${review.user_name}</p>
+        //             <p>Rating: ${review.rating}/5</p>
+        //             <p class="text-muted fst-italic">"${review.comment.substring(0, 50)}..."</p>
+        //             <a href="admin_manage_reviews.html?review_id=${review.id}" class="btn btn-sm btn-outline-secondary">Moderate</a>
+        //         `;
+        //         recentReviewsList.appendChild(listItem);
+        //     });
+        // } else {
+        //     recentReviewsList.innerHTML = '<li class="list-group-item">Could not load recent reviews.</li>';
+        // }
+        recentReviewsList.innerHTML = '<li class="list-group-item">Recent reviews functionality placeholder.</li>'; // Placeholder
+    }
+
+
+    // Initialize dashboard
+    if (document.getElementById('total-users-stat')) { // Check if we are on the dashboard page
+        fetchStats();
+    }
+
+    // Add event listeners for any interactive elements on the dashboard if needed
+    // e.g., refresh buttons, date range selectors for charts (if you add charts)
+});
+
+// Note: This script assumes your admin_dashboard.html has elements with these IDs:
+// - total-users-stat
+// - total-products-stat
+// - total-orders-stat
+// - total-revenue-stat
+// - recent-orders-list (e.g., a <ul>)
+// - recent-reviews-list (e.g., a <ul>)
+// - dashboard-error-message (optional, for displaying errors)
+
+// You will also need to implement the backend API endpoints:
+// - GET /api/admin/stats/total_users
+// - GET /api/admin/stats/total_products
+// - GET /api/admin/stats/total_orders
+// - GET /api/admin/stats/total_revenue
+// - (Optional) Endpoints for recent orders and reviews
