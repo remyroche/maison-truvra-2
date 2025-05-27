@@ -36,10 +36,30 @@
         .form-input-pro { @apply w-full px-4 py-3 text-brand-near-black bg-white border border-brand-warm-taupe/50 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-classic-gold shadow-sm; }
         .modal-message { @apply fixed bottom-5 right-5 bg-brand-deep-sage-green text-brand-cream p-4 rounded-lg shadow-xl z-[100] transition-all duration-500 ease-out opacity-0 translate-y-10; }
         .modal-message.show { @apply opacity-100 translate-y-0; }
-        .modal-overlay { @apply fixed inset-0 bg-brand-near-black bg-opacity-60 flex items-center justify-center p-4 z-50 transition-opacity duration-300; } /* Added to style for forgot password modal */
-        .modal-content { @apply bg-white p-6 sm:p-8 rounded-lg shadow-2xl w-full max-w-md transform scale-95 transition-transform duration-300; } /* Added */
+        .modal-overlay { @apply fixed inset-0 bg-brand-near-black bg-opacity-60 flex items-center justify-center p-4 z-50 transition-opacity duration-300; }
+        .modal-content { @apply bg-white p-6 sm:p-8 rounded-lg shadow-2xl w-full max-w-md transform scale-95 transition-transform duration-300; }
         .pro-dashboard-section { display: none; } /* Hidden by default */
         .error-message { @apply text-xs text-red-600 mt-1; }
+        .password-strength { @apply text-xs mt-1; }
+        .strength-weak { color: #EF4444; } /* red-500 */
+        .strength-medium { color: #F59E0B; } /* amber-500 */
+        .strength-strong { color: #10B981; } /* emerald-500 */
+
+        /* Invoice Status Badges for B2B Portal */
+        .invoice-status-badge {
+            padding: 0.2em 0.5em;
+            border-radius: 0.25rem;
+            font-size: 0.8em;
+            font-weight: 500;
+            text-transform: capitalize;
+            display: inline-block;
+            min-width: 80px; /* Ensure consistent width */
+            text-align: center;
+        }
+        .invoice-status-pending { background-color: #FEF3C7; color: #92400E; border: 1px solid #FBBF24; } /* Amber */
+        .invoice-status-paid { background-color: #D1FAE5; color: #065F46; border: 1px solid #6EE7B7; }    /* Green */
+        .invoice-status-overdue { background-color: #FEE2E2; color: #991B1B; border: 1px solid #FCA5A5; } /* Red */
+        .invoice-status-cancelled { background-color: #E5E7EB; color: #4B5563; border: 1px solid #D1D5DB; } /* Gray */
     </style>
 </head>
 <body id="page-professionnels" class="antialiased" data-page-title-key="Titre_Page_Professionnels">
@@ -49,13 +69,13 @@
     <main class="bg-brand-cream">
         <section id="pro-logged-out-view" class="py-16">
             <div class="container mx-auto px-4 sm:px-6 lg:px-8">
-                <h1 class="text-3xl sm:text-4xl font-serif italic text-brand-earth-brown mb-8 text-center" data-translate-key="Espace_professionnels_Titre">Espace professionnels</h1>
+                <h1 class="text-3xl sm:text-4xl font-serif italic text-brand-earth-brown mb-12 text-center" data-translate-key="Espace_professionnels_Titre">Espace professionnels</h1>
 
-                <div class="grid md:grid-cols-2 gap-12 items-start">
-                    <div class="bg-white shadow-xl rounded-lg p-8">
-                        <h2 class="text-2xl font-serif text-brand-near-black mb-5" data-translate-key="Pro_Deja_client_Connectez-vous">Déjà Professionnel ? Connectez-vous</h2>
+                <div id="pro-login-view-wrapper">
+                    <div class="max-w-lg mx-auto bg-white shadow-xl rounded-lg p-8">
+                        <h2 class="text-2xl font-serif text-brand-near-black mb-6 text-center" data-translate-key="Pro_Connectez_vous_Titre">Connectez-vous à votre espace</h2>
                         <form id="pro-login-form" class="space-y-5">
-                            <div id="pro-login-message" class="text-sm text-brand-truffle-burgundy mb-4"></div>
+                            <div id="pro-login-message" class="text-sm text-brand-truffle-burgundy mb-4 min-h-[1.25rem]"></div>
                             <div>
                                 <label for="pro-login-email" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Adresse_e-mail">Adresse e-mail</label>
                                 <input type="email" id="pro-login-email" name="email" class="form-input-pro" required autocomplete="email">
@@ -67,12 +87,18 @@
                             </div>
                             <button type="submit" class="btn-primary w-full py-3" data-translate-key="Se_connecter">Se connecter</button>
                         </form>
+                        <div class="text-center mt-8">
+                            <p class="text-sm text-brand-earth-brown mb-2" data-translate-key="Pro_Pas_de_compte_Question">Pas encore de compte professionnel ?</p>
+                            <button type="button" id="show-register-view-button" class="font-medium text-brand-classic-gold hover:text-brand-earth-brown underline" data-translate-key="Pro_Creer_un_compte_lien">Créer un compte ici</button>
+                        </div>
                     </div>
+                </div>
 
-                    <div class="bg-white shadow-xl rounded-lg p-8">
-                        <h2 class="text-2xl font-serif text-brand-near-black mb-5" data-translate-key="Pro_Nouveau_client_Creer_compte">Nouveau Professionnel ? Créez un compte</h2>
+                <div id="pro-register-view-wrapper" style="display:none;">
+                    <div class="max-w-lg mx-auto bg-white shadow-xl rounded-lg p-8">
+                        <h2 class="text-2xl font-serif text-brand-near-black mb-6 text-center" data-translate-key="Pro_Nouveau_client_Creer_compte">Créer un compte professionnel</h2>
                         <form id="pro-register-form" class="space-y-5">
-                             <div id="pro-register-message" class="text-sm text-brand-truffle-burgundy mb-4"></div>
+                             <div id="pro-register-message" class="text-sm text-brand-truffle-burgundy mb-4 min-h-[1.25rem]"></div>
                             <div>
                                 <label for="pro-register-company-name" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Nom_entreprise">Nom de l'entreprise</label>
                                 <input type="text" id="pro-register-company-name" name="company_name" class="form-input-pro" required>
@@ -98,13 +124,18 @@
                             <div>
                                 <label for="pro-register-password" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Mot_de_passe">Mot de passe</label>
                                 <input type="password" id="pro-register-password" name="password" class="form-input-pro" required>
+                                <div id="pro-register-password-strength" class="password-strength"></div>
                             </div>
                             <div>
                                 <label for="pro-register-confirm-password" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Confirmer_mot_de_passe">Confirmer mot de passe</label>
                                 <input type="password" id="pro-register-confirm-password" name="confirm_password" class="form-input-pro" required>
                             </div>
-                            <button type="submit" class="btn-secondary w-full py-3" data-translate-key="Creer_un_compte_professionnel">Créer un compte professionnel</button>
+                            <button type="submit" class="btn-secondary w-full py-3" data-translate-key="Creer_un_compte_professionnel_submit">Créer mon compte professionnel</button>
                         </form>
+                        <div class="text-center mt-8">
+                            <p class="text-sm text-brand-earth-brown mb-2" data-translate-key="Pro_Deja_un_compte_Question">Déjà un compte ?</p>
+                            <button type="button" id="show-login-view-button" class="font-medium text-brand-classic-gold hover:text-brand-earth-brown underline" data-translate-key="Pro_Se_connecter_lien">Connectez-vous ici</button>
+                        </div>
                     </div>
                 </div>
 
@@ -113,9 +144,9 @@
                         <h3 class="text-xl font-serif text-brand-near-black mb-4" data-translate-key="Pro_Reinitialiser_Mot_De_Passe_Titre">Réinitialiser le mot de passe</h3>
                         <form id="pro-forgot-password-form" class="space-y-4">
                             <p class="text-sm text-brand-earth-brown" data-translate-key="Pro_Instructions_Mot_De_Passe_Oublie">
-                                Veuillez entrer votre adresse e-mail. Si un compte correspondant existe, nous vous enverrons (théoriquement) un lien pour réinitialiser votre mot de passe.
+                                Veuillez entrer votre adresse e-mail. Si un compte correspondant existe, nous vous enverrons un lien pour réinitialiser votre mot de passe.
                             </p>
-                            <div id="pro-forgot-password-message" class="text-sm my-2"></div>
+                            <div id="pro-forgot-password-message" class="text-sm my-2 min-h-[1.25rem]"></div>
                             <div>
                                 <label for="pro-forgot-email" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Adresse_e-mail">Adresse e-mail</label>
                                 <input type="email" id="pro-forgot-email" name="email" class="form-input-pro" required>
@@ -128,8 +159,7 @@
                     </div>
                 </div>
 
-
-                <div class="max-w-3xl mx-auto text-lg text-brand-earth-brown space-y-8 text-center leading-relaxed mt-12">
+                <div class="max-w-3xl mx-auto text-lg text-brand-earth-brown space-y-8 text-center leading-relaxed mt-16">
                     <p data-translate-key="Pro_Texte_Intro1">Fruit de notre artisanat méticuleux et de notre environnement contrôlé, nos truffes sont récoltées au moment précis où elles atteignent leur pic de maturité aromatique.</p>
                     <p data-translate-key="Pro_Texte_Intro2">Nous proposons aux professionnels de la gastronomie des truffes melanosporum fraîches d'une qualité exceptionnelle, idéales pour sublimer vos créations culinaires.</p>
                     <div class="mt-12 pt-2">
@@ -155,12 +185,13 @@
                             <p><strong><span data-translate-key="Contact">Contact</span>:</strong> <span id="pro-dashboard-contact-name"></span></p>
                             <p><strong><span data-translate-key="Email">Email</span>:</strong> <span id="pro-dashboard-email"></span></p>
                             <p><strong><span data-translate-key="Telephone">Téléphone</span>:</strong> <span id="pro-dashboard-phone"></span></p>
+                            <p><strong><span data-translate-key="Pro_Statut_Compte">Statut du compte</span>:</strong> <span id="pro-dashboard-status" class="font-semibold"></span></p>
                         </div>
                         <button id="pro-show-update-form-button" class="btn-primary w-full text-sm mb-3" data-translate-key="Pro_Modifier_Infos">Modifier mes informations</button>
 
                         <form id="pro-update-account-form" class="space-y-4 mt-4" style="display:none;">
                             <h3 class="text-md font-semibold" data-translate-key="Pro_Modifier_Details_Titre">Modifier les détails :</h3>
-                             <div id="pro-update-message" class="text-sm text-brand-truffle-burgundy my-2"></div>
+                             <div id="pro-update-message" class="text-sm text-brand-truffle-burgundy my-2 min-h-[1.25rem]"></div>
                             <div><label for="pro-update-company-name" class="block text-xs font-medium" data-translate-key="Nom_entreprise">Nom Entreprise</label><input type="text" id="pro-update-company-name" class="form-input-pro text-sm"></div>
                             <div><label for="pro-update-prenom" class="block text-xs font-medium" data-translate-key="Prenom_contact">Prénom Contact</label><input type="text" id="pro-update-prenom" class="form-input-pro text-sm"></div>
                             <div><label for="pro-update-nom" class="block text-xs font-medium" data-translate-key="Nom_contact">Nom Contact</label><input type="text" id="pro-update-nom" class="form-input-pro text-sm"></div>
@@ -169,7 +200,11 @@
                             <hr>
                             <h3 class="text-md font-semibold pt-2" data-translate-key="Pro_Changer_Mot_De_Passe">Changer de mot de passe :</h3>
                             <div><label for="pro-update-current-password" class="block text-xs font-medium" data-translate-key="Pro_Mot_de_passe_actuel">Mot de passe actuel (requis pour changer MDP)</label><input type="password" id="pro-update-current-password" class="form-input-pro text-sm"></div>
-                            <div><label for="pro-update-new-password" class="block text-xs font-medium" data-translate-key="Pro_Nouveau_mot_de_passe">Nouveau mot de passe</label><input type="password" id="pro-update-new-password" class="form-input-pro text-sm"></div>
+                            <div>
+                                <label for="pro-update-new-password" class="block text-xs font-medium" data-translate-key="Pro_Nouveau_mot_de_passe">Nouveau mot de passe</label>
+                                <input type="password" id="pro-update-new-password" class="form-input-pro text-sm">
+                                <div id="pro-update-password-strength" class="password-strength"></div>
+                            </div>
                             <div><label for="pro-update-confirm-password" class="block text-xs font-medium" data-translate-key="Pro_Confirmer_nouveau_mot_de_passe">Confirmer nouveau mot de passe</label><input type="password" id="pro-update-confirm-password" class="form-input-pro text-sm"></div>
                             <div class="flex space-x-2">
                                 <button type="submit" class="btn-primary text-sm" data-translate-key="Pro_Enregistrer_Modifs">Enregistrer Modifications</button>
@@ -182,7 +217,7 @@
                         <h2 class="text-xl font-serif text-brand-near-black mb-5" data-translate-key="Pro_Mes_Factures">Mes Factures</h2>
                         <div id="pro-invoices-list-container" class="max-h-96 overflow-y-auto">
                             <p class="text-brand-warm-taupe italic" data-translate-key="Pro_Chargement_Factures">Chargement des factures...</p>
-                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
