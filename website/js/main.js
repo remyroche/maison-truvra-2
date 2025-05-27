@@ -157,12 +157,58 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     } else if (bodyId === 'page-panier') {
         if (typeof displayCartItems === 'function') displayCartItems();
-    } else if (bodyId === 'page-compte') { // B2C Account Page
-        if (typeof displayAccountDashboard === 'function') displayAccountDashboard(); // B2C dashboard
-        const loginForm = document.getElementById('login-form'); // B2C login form
-        if (loginForm && typeof handleLogin === 'function') {
-            loginForm.addEventListener('submit', handleLogin); // B2C login handler
-        }
+// In main.js, inside the DOMContentLoaded listener for 'page-compte'
+} else if (document.body.id === 'page-compte') {
+    if (typeof displayAccountDashboard === 'function') displayAccountDashboard();
+
+    const loginForm = document.getElementById('login-form');
+    const registerForm = document.getElementById('register-form');
+    const newCustomerSection = document.getElementById('new-customer-section');
+    const showRegisterButton = document.getElementById('show-register-form-button');
+    const showLoginLink = document.getElementById('show-login-link');
+
+    if (loginForm && typeof handleLogin === 'function') {
+        loginForm.addEventListener('submit', handleLogin);
+    }
+    if (registerForm && typeof handleRegistrationForm === 'function') {
+        registerForm.addEventListener('submit', handleRegistrationForm);
+    }
+
+    if (showRegisterButton && loginForm && registerForm && newCustomerSection) {
+        showRegisterButton.addEventListener('click', (e) => {
+            e.preventDefault();
+            loginForm.style.display = 'none';
+            newCustomerSection.style.display = 'none';
+            registerForm.style.display = 'block';
+            if (typeof clearFormErrors === 'function') clearFormErrors(registerForm);
+            document.getElementById('register-message').textContent = '';
+        });
+    }
+
+    if (showLoginLink && loginForm && registerForm && newCustomerSection) {
+        showLoginLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            registerForm.style.display = 'none';
+            loginForm.style.display = 'block';
+            newCustomerSection.style.display = 'block'; // Show the "Nouveau client?" prompt again
+            if (typeof clearFormErrors === 'function') clearFormErrors(loginForm);
+             document.getElementById('login-message').textContent = '';
+        });
+    }
+    // Initial state: show login form, hide register form
+    if (loginForm) loginForm.style.display = 'block';
+    if (registerForm) registerForm.style.display = 'none';
+    if (newCustomerSection) newCustomerSection.style.display = 'block';
+
+
+    // Keep existing "Mot de passe oublié?" if needed, or integrate into login form better
+    const forgotPasswordLink = loginForm ? loginForm.querySelector('a[onclick*="Fonctionnalité de mot de passe oublié"]') : null;
+    if(forgotPasswordLink && typeof showGlobalMessage === 'function' && typeof t === 'function'){
+        forgotPasswordLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            showGlobalMessage(t('Fonctionnalite_Mot_de_passe_oublie_B2C_TODO'), 'info'); // Use specific key if exists or general
+        });
+    }
         // B2C create account button (assuming it's the secondary button in this section)
         const createAccountButtonB2C = document.querySelector('#login-register-section button.btn-secondary');
         if(createAccountButtonB2C && typeof showGlobalMessage === 'function' && typeof t === 'function'){
