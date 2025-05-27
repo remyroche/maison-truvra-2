@@ -20,6 +20,7 @@ def init_db():
     db = get_db()
     cursor = db.cursor()
 
+    
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,6 +37,23 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     ''')
+
+
+    # Add to init_db() in backend/database.py
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS product_reviews (
+        review_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id TEXT NOT NULL,
+        user_id INTEGER, -- Can be NULL for guest reviews if allowed
+        rating INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
+        comment_text TEXT,
+        review_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        is_approved BOOLEAN DEFAULT FALSE, -- Admin approval for reviews
+        FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
+    )
+    ''')
+    current_app.logger.info("Table 'product_reviews' vérifiée/créée.")
 
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS newsletter_subscriptions (
