@@ -1,294 +1,301 @@
 // website/admin/js/admin_invoices.js
+import { callAdminApi, showAdminToast } from './admin_api.js';
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Called by admin_main.js
+    const page = getCurrentPageName();
+
+    if (page === 'admin_manage_invoices.html') {
+        initManageInvoicesPage();
+    }
 });
 
-let b2bUsersCache = []; // Cache for B2B users
+function getCurrentPageName() {
+    const path = window.location.pathname;
+    return path.substring(path.lastIndexOf('/') + 1);
+}
 
-async function initializeAdminInvoiceManagement() {
-    const userSelectDropdown = document.getElementById('select-b2b-user-for-invoice');
-    const createInvoiceFormSection = document.getElementById('create-invoice-form-section');
-    const invoiceListSection = document.getElementById('user-invoices-list-section');
-    const createInvoiceForm = document.getElementById('admin-create-invoice-form');
-    const selectedUserNameSpanInvoice = document.getElementById('selected-b2b-user-name-invoice');
-    const selectedUserNameSpanList = document.getElementById('selected-b2b-user-name-list');
-    const hiddenUserIdField = document.getElementById('invoice-user-id-hidden');
-    const addInvoiceItemButton = document.getElementById('add-invoice-item-button');
-    const lineItemsContainer = document.getElementById('invoice-line-items-container');
+async function initManageInvoicesPage() {
+    const createInvoiceForm = document.getElementById('createInvoiceForm');
+    const uploadInvoiceForm = document.getElementById('uploadInvoiceForm');
+    const invoicesTableBody = document.getElementById('invoicesTableBody');
+    const b2bUserSelect = document.getElementById('b2bUserSelect'); // For create form
+    const b2bUserUploadSelect = document.getElementById('b2bUserUploadSelect'); // For upload form
+    const filterUserIdInput = document.getElementById('filterUserId');
+    const applyFilterButton = document.getElementById('applyInvoiceFilter');
 
-    if (!userSelectDropdown || !createInvoiceForm || !invoiceListSection || !addInvoiceItemButton || !lineItemsContainer) {
-        console.error("One or more critical elements for invoice management are missing from the DOM.");
+
+    if (!invoicesTableBody) {
+        console.error('Invoices table body not found.');
         return;
     }
-
-    await populateB2BUserDropdown(userSelectDropdown);
-
-    userSelectDropdown.addEventListener('change', async (event) => {
-        const selectedUserId = event.target.value;
-        const selectedUser = b2bUsersCache.find(u => u.id.toString() === selectedUserId);
-
-        if (selectedUser) {
-            if (selectedUserNameSpanInvoice) selectedUserNameSpanInvoice.textContent = selectedUser.company_name || `${selectedUser.prenom} ${selectedUser.nom}`;
-            if (selectedUserNameSpanList) selectedUserNameSpanList.textContent = selectedUser.company_name || `${selectedUser.prenom} ${selectedUser.nom}`;
-            if (hiddenUserIdField) hiddenUserIdField.value = selectedUserId;
-
-            // Populate client details in the create form
-            document.getElementById('create-client-company-name').value = selectedUser.company_name || '';
-            document.getElementById('create-client-contact-person').value = `${selectedUser.prenom || ''} ${selectedUser.nom || ''}`.trim();
-            // TODO: Add address and VAT fields to user table or fetch from a dedicated client profile if needed. For now, these might be manual.
-            // document.getElementById('create-client-address-lines').value = selectedUser.address || '';
-            // document.getElementById('create-client-vat-number').value = selectedUser.vat_number || '';
+    if (b2bUserSelect) await populateB2BUserDropdown(b2bUserSelect);
+    if (b2bUserUploadSelect) await populateB2BUserDropdown(b2bUserUploadSelect);
 
 
-            if (createInvoiceFormSection) createInvoiceFormSection.style.display = 'block';
-            if (invoiceListSection) invoiceListSection.style.display = 'block';
-            await loadInvoicesForUser(selectedUserId);
-            resetCreateInvoiceForm(); // Reset form when user changes
+    if (createInvoiceForm) {
+        const addItemButton = document.getElementById('addInvoiceItem');
+        if (addItemButton) {
+            addItemButton.addEventListener('click', addInvoiceItemRow);
         } else {
-            if (createInvoiceFormSection) createInvoiceFormSection.style.display = 'none';
-            if (invoiceListSection) invoiceListSection.style.display = 'none';
-            if (selectedUserNameSpanInvoice) selectedUserNameSpanInvoice.textContent = '';
-            if (selectedUserNameSpanList) selectedUserNameSpanList.textContent = '';
-            const tableBody = document.getElementById('admin-invoices-table-body');
-            if(tableBody) tableBody.innerHTML = '<tr><td colspan="6" class="text-center py-3">Sélectionnez un utilisateur pour voir ses factures.</td></tr>';
+            console.warn('Add invoice item button not found');
         }
-    });
-
-    createInvoiceForm.addEventListener('submit', handleCreateAndSaveInvoice);
-    addInvoiceItemButton.addEventListener('click', addInvoiceItemRow);
-
-    // Initial call to add one line item row
-    addInvoiceItemRow();
-    // Add event listener for dynamic total calculation
-    lineItemsContainer.addEventListener('input', updateInvoiceTotalsPreview);
-    document.getElementById('create-invoice-discount').addEventListener('input', updateInvoiceTotalsPreview);
-    document.getElementById('create-invoice-vat-rate').addEventListener('input', updateInvoiceTotalsPreview);
-
-}
-
-function resetCreateInvoiceForm() {
-    const form = document.getElementById('admin-create-invoice-form');
-    if (form) {
-        form.reset();
-        document.getElementById('invoice-line-items-container').innerHTML = '';
-        addInvoiceItemRow(); // Add one blank row
-        updateInvoiceTotalsPreview();
-        document.getElementById('invoice-preview-area').style.display = 'none';
-        const downloadLink = document.getElementById('generated-pdf-download-link');
-        if(downloadLink) {
-            downloadLink.href = "#";
-            downloadLink.style.display = "none";
-            downloadLink.textContent = "";
-        }
+        createInvoiceForm.addEventListener('submit', handleCreateInvoice);
+    } else {
+        console.warn('Create invoice form not found');
     }
-}
+    
+    if (uploadInvoiceForm) {
+        uploadInvoiceForm.addEventListener('submit', handleUploadInvoice);
+    } else {
+        console.warn('Upload invoice form not found');
+    }
 
+    if (applyFilterButton && filterUserIdInput) {
+        applyFilterButton.addEventListener('click', () => {
+            const userId = filterUserIdInput.value.trim();
+            loadInvoices(1, userId ? parseInt(userId) : null);
+        });
+    }
+
+
+    loadInvoices(); // Initial load
+}
 
 async function populateB2BUserDropdown(selectElement) {
     if (!selectElement) return;
     try {
-        const users = await adminApiRequest('/users');
-        b2bUsersCache = users.filter(user => user.user_type === 'b2b');
-        selectElement.innerHTML = '<option value="">-- Sélectionner un Professionnel --</option>';
-        b2bUsersCache.forEach(user => {
-            const option = document.createElement('option');
-            option.value = user.id;
-            option.textContent = `<span class="math-inline">\{user\.company\_name \|\| 'N/A'\} \(</span>{user.prenom || ''} ${user.nom || ''} - ${user.email})`;
-            selectElement.appendChild(option);
-        });
+        // Fetch only B2B (professional) users
+        const response = await callAdminApi('/users?user_type=b2b&per_page=1000', 'GET'); // Fetch more users if needed
+        if (response && response.users) {
+            selectElement.innerHTML = '<option value="">Select B2B User</option>'; // Default option
+            response.users.forEach(user => {
+                const option = document.createElement('option');
+                option.value = user.id;
+                option.textContent = `${user.company_name || user.email} (ID: ${user.id})`;
+                selectElement.appendChild(option);
+            });
+        } else {
+             selectElement.innerHTML = '<option value="">Could not load users</option>';
+        }
     } catch (error) {
-        console.error("Erreur chargement utilisateurs B2B:", error);
-        selectElement.innerHTML = '<option value="">Erreur chargement utilisateurs</option>';
+        console.error('Failed to populate B2B user dropdown:', error);
+        showAdminToast('Error fetching B2B users.', 'error');
+        if(selectElement) selectElement.innerHTML = '<option value="">Error loading users</option>';
     }
 }
 
-function addInvoiceItemRow(item = { description: '', quantity: 1, unit_price_ht: '' }) {
-    const container = document.getElementById('invoice-line-items-container');
-    const itemIndex = container.children.length;
-    const rowHtml = `
-        <div class="invoice-item-row grid grid-cols-12 gap-2 items-center mb-2 p-2 border rounded-md">
-            <div class="col-span-5">
-                <label class="text-xs">Description</label>
-                <input type="text" name="items[<span class="math-inline">\{itemIndex\}\]\[description\]" class\="form\-input\-admin item\-description text\-sm p\-1" value\="</span>{item.description}" required placeholder="Description article">
-            </div>
-            <div class="col-span-2">
-                <label class="text-xs">Qté</label>
-                <input type="number" name="items[<span class="math-inline">\{itemIndex\}\]\[quantity\]" class\="form\-input\-admin item\-quantity text\-sm p\-1" value\="</span>{item.quantity}" min="1" step="1" required placeholder="Qté">
-            </div>
-            <div class="col-span-3">
-                <label class="text-xs">Prix Unit. HT (€)</label>
-                <input type="number" name="items[<span class="math-inline">\{itemIndex\}\]\[unit\_price\_ht\]" class\="form\-input\-admin item\-price\-ht text\-sm p\-1" value\="</span>{item.unit_price_ht}" step="0.01" min="0" required placeholder="Prix HT">
-            </div>
-            <div class="col-span-1">
-                 <label class="text-xs block">&nbsp;</label> <button type="button" class="btn-admin-danger text-xs p-1 remove-item-btn self-end">✕</button>
-            </div>
-        </div>
-    `;
-    container.insertAdjacentHTML('beforeend', rowHtml);
-    const newRow = container.lastElementChild;
-    newRow.querySelector('.remove-item-btn').addEventListener('click', function() {
-        this.closest('.invoice-item-row').remove();
-        updateInvoiceTotalsPreview(); // Recalculate totals when an item is removed
-    });
-    updateInvoiceTotalsPreview(); // Recalculate after adding
-}
-
-function updateInvoiceTotalsPreview() {
-    const itemsContainer = document.getElementById('invoice-line-items-container');
-    let totalHtBeforeDiscount = 0;
-    itemsContainer.querySelectorAll('.invoice-item-row').forEach(row => {
-        const qty = parseFloat(row.querySelector('.item-quantity').value) || 0;
-        const priceHt = parseFloat(row.querySelector('.item-price-ht').value) || 0;
-        totalHtBeforeDiscount += qty * priceHt;
-    });
-
-    const discountPercent = parseFloat(document.getElementById('create-invoice-discount').value) || 0;
-    const vatRatePercent = parseFloat(document.getElementById('create-invoice-vat-rate').value) || 0;
-
-    const discountAmount = (totalHtBeforeDiscount * discountPercent) / 100;
-    const totalHtAfterDiscount = totalHtBeforeDiscount - discountAmount;
-    const vatAmount = (totalHtAfterDiscount * vatRatePercent) / 100;
-    const totalTtc = totalHtAfterDiscount + vatAmount;
-
-    document.getElementById('preview-total-ht-before-discount').textContent = totalHtBeforeDiscount.toFixed(2);
-    document.getElementById('preview-discount-amount').textContent = discountAmount.toFixed(2);
-    document.getElementById('preview-total-ht-after-discount').textContent = totalHtAfterDiscount.toFixed(2);
-    document.getElementById('preview-vat-amount').textContent = vatAmount.toFixed(2);
-    document.getElementById('preview-total-ttc').textContent = totalTtc.toFixed(2);
-}
-
-
-async function handleCreateAndSaveInvoice(event) {
-    event.preventDefault();
-    const form = event.target;
-    const b2bUserId = document.getElementById('invoice-user-id-hidden').value;
-
-    if (!b2bUserId) {
-        showAdminToast("Veuillez sélectionner un client professionnel.", "error");
+function addInvoiceItemRow() {
+    const itemsContainer = document.getElementById('invoiceItemsContainer');
+    if (!itemsContainer) {
+        console.error('Invoice items container not found');
         return;
     }
+    const itemIndex = itemsContainer.children.length;
+    const itemRow = document.createElement('div');
+    itemRow.classList.add('flex', 'space-x-2', 'mb-2', 'invoice-item-row');
+    itemRow.innerHTML = `
+        <input type="text" name="items[${itemIndex}][description]" placeholder="Description" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 p-2 text-sm" required>
+        <input type="number" name="items[${itemIndex}][quantity]" placeholder="Qty" class="mt-1 block w-1/4 rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 p-2 text-sm" required step="any">
+        <input type="number" name="items[${itemIndex}][unit_price]" placeholder="Unit Price" class="mt-1 block w-1/4 rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 p-2 text-sm" required step="0.01">
+        <button type="button" class="remove-item-btn bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-2 rounded text-xs">Remove</button>
+    `;
+    itemsContainer.appendChild(itemRow);
+    itemRow.querySelector('.remove-item-btn').addEventListener('click', () => itemRow.remove());
+}
 
-    const itemsData = [];
-    document.querySelectorAll('#invoice-line-items-container .invoice-item-row').forEach(row => {
-        const description = row.querySelector('input[name*="[description]"]').value.trim();
-        const quantity = row.querySelector('input[name*="[quantity]"]').value;
-        const unit_price_ht = row.querySelector('input[name*="[unit_price_ht]"]').value;
 
-        if (description && quantity && unit_price_ht) { // Basic validation
-            itemsData.push({
-                description: description,
-                quantity: parseInt(quantity),
-                unit_price_ht: parseFloat(unit_price_ht)
+async function handleCreateInvoice(event) {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const invoiceData = {
+        user_id: formData.get('user_id'),
+        order_id: formData.get('order_id') || null, // Optional
+        client_details: { // Assuming you might add specific client detail fields later
+            name: formData.get('client_name_override') || null, // Example: allow override
+            address: formData.get('client_address_override') || null,
+            vat_number: formData.get('client_vat_override') || null,
+        },
+        items: [],
+        invoice_number: formData.get('invoice_number') || null, // Optional, can be auto-generated
+        issue_date: formData.get('issue_date'),
+        due_date: formData.get('due_date') || null,
+        payment_terms: formData.get('payment_terms') || null,
+        notes: formData.get('notes') || null,
+    };
+
+    const itemRows = document.querySelectorAll('#invoiceItemsContainer .invoice-item-row');
+    itemRows.forEach(row => {
+        const descriptionInput = row.querySelector('input[name*="[description]"]');
+        const quantityInput = row.querySelector('input[name*="[quantity]"]');
+        const unitPriceInput = row.querySelector('input[name*="[unit_price]"]');
+        
+        if (descriptionInput && quantityInput && unitPriceInput) {
+            invoiceData.items.push({
+                description: descriptionInput.value,
+                quantity: parseFloat(quantityInput.value),
+                unit_price: parseFloat(unitPriceInput.value)
             });
         }
     });
-
-    if (itemsData.length === 0) {
-        showAdminToast("Veuillez ajouter au moins un article à la facture.", "error");
+    
+    if (!invoiceData.user_id) {
+        showAdminToast('Please select a B2B User.', 'error');
+        return;
+    }
+    if (invoiceData.items.length === 0) {
+        showAdminToast('Please add at least one item to the invoice.', 'error');
         return;
     }
 
-    const invoicePayload = {
-        user_id: b2bUserId,
-        client_data: { // These would ideally be pre-filled when selecting a user, or fetched from user's profile
-            company_name: document.getElementById('create-client-company-name').value,
-            contact_person: document.getElementById('create-client-contact-person').value,
-            address_lines: document.getElementById('create-client-address-lines').value.split('\n').map(s => s.trim()).filter(s => s),
-            vat_number: document.getElementById('create-client-vat-number').value
-        },
-        invoice_meta: {
-            number: document.getElementById('create-invoice-number').value,
-            date: document.getElementById('create-invoice-date').value,
-            due_date: document.getElementById('create-invoice-due-date').value,
-            discount_percentage_str: document.getElementById('create-invoice-discount').value || "0",
-            vat_rate_percent_str: document.getElementById('create-invoice-vat-rate').value || "20"
-        },
-        items_data: itemsData
-    };
 
-    showAdminToast("Génération et enregistrement de la facture en cours...", "info");
     try {
-        const result = await adminApiRequest('/invoices/generate-and-save', 'POST', invoicePayload);
+        const result = await callAdminApi('/invoices/generate', 'POST', invoiceData);
         if (result.success) {
-            showAdminToast(result.message || "Facture générée et enregistrée avec succès!", "success");
-
-            const previewArea = document.getElementById('invoice-preview-area');
-            const downloadLink = document.getElementById('generated-pdf-download-link');
-
-            if (result.download_url && downloadLink && previewArea) {
-                downloadLink.href = result.download_url;
-                downloadLink.textContent = `Télécharger/Voir Facture: ${result.file_path}`;
-                downloadLink.style.display = 'inline-block';
-                // For iframe preview:
-                // const iframe = document.getElementById('pdf-preview-iframe');
-                // iframe.src = result.download_url; // Or a specific preview URL if different
-                // previewArea.style.display = 'block';
-            } else if (result.file_path && downloadLink && previewArea) { // Fallback if only relative path given
-                const staticBase = "/static_assets/invoices_uploads/"; // Assuming this base
-                downloadLink.href = staticBase + result.file_path;
-                downloadLink.textContent = `Télécharger/Voir Facture: ${result.file_path}`;
-                downloadLink.style.display = 'inline-block';
-            }
-
-
-            form.reset();
-            document.getElementById('invoice-line-items-container').innerHTML = ''; // Clear items
-            addInvoiceItemRow(); // Add a blank row back
-            updateInvoiceTotalsPreview(); // Reset totals preview
-            await loadInvoicesForUser(b2bUserId); // Refresh the list of invoices for the user
+            showAdminToast('Invoice generated successfully!', 'success');
+            event.target.reset(); // Reset form
+            document.getElementById('invoiceItemsContainer').innerHTML = ''; // Clear items
+            loadInvoices(); // Refresh table
         } else {
-            showAdminToast(result.message || "Échec de la création de la facture.", "error");
+            showAdminToast(`Failed to generate invoice: ${result.message}`, 'error');
         }
     } catch (error) {
-        showAdminToast(error.message || "Erreur lors de la création de la facture.", "error");
-        console.error("Erreur création facture:", error);
+        console.error('Error generating invoice:', error);
+        showAdminToast('An error occurred while generating the invoice.', 'error');
     }
 }
 
-async function loadInvoicesForUser(userId) {
-    // ... (same as previous version, ensures list is refreshed)
-    const tableBody = document.getElementById('admin-invoices-table-body');
-    if (!tableBody) return;
-    tableBody.innerHTML = '<tr><td colspan="6" class="text-center py-3">Chargement des factures...</td></tr>';
+async function handleUploadInvoice(event) {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    // FormData will correctly handle the file input named "invoice_file"
+
+    if (!formData.get('user_id')) {
+        showAdminToast('Please select a B2B User for the upload.', 'error');
+        return;
+    }
+     if (!formData.get('invoice_file') || formData.get('invoice_file').size === 0) {
+        showAdminToast('Please select an invoice file to upload.', 'error');
+        return;
+    }
+
 
     try {
-        const data = await adminApiRequest(`/users/${userId}/invoices`); // Endpoint for fetching invoices for a specific user
+        // The 'callAdminApi' needs to be able to handle FormData for file uploads
+        // If it stringifies the body by default, it won't work for files.
+        // Let's assume callAdminApi can handle FormData if body is FormData instance.
+        const result = await callAdminApi('/invoices/upload', 'POST', formData, true); // true to indicate FormData
+
+        if (result.success) {
+            showAdminToast('Invoice uploaded successfully!', 'success');
+            event.target.reset();
+            loadInvoices(); // Refresh table
+        } else {
+            showAdminToast(`Failed to upload invoice: ${result.message}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error uploading invoice:', error);
+        showAdminToast('An error occurred while uploading the invoice.', 'error');
+    }
+}
+
+
+async function loadInvoices(page = 1, userId = null) {
+    const invoicesTableBody = document.getElementById('invoicesTableBody');
+    if (!invoicesTableBody) return;
+
+    let url = `/invoices?page=${page}&per_page=10`;
+    if (userId) {
+        url += `&user_id=${userId}`;
+    }
+
+    try {
+        const data = await callAdminApi(url, 'GET');
         if (data.success && data.invoices) {
+            invoicesTableBody.innerHTML = ''; // Clear existing rows
             if (data.invoices.length === 0) {
-                tableBody.innerHTML = '<tr><td colspan="6" class="text-center py-3">Aucune facture trouvée pour cet utilisateur.</td></tr>';
-                return;
-            }
-            let rowsHtml = '';
-            data.invoices.forEach(invoice => {
-                const invoiceDate = new Date(invoice.invoice_date).toLocaleDateString('fr-CA');
-                const uploadedDate = new Date(invoice.uploaded_at).toLocaleString('fr-FR');
-                // Construct a direct link to the static asset if INVOICES_UPLOAD_DIR is served
-                // This path needs to match how your Flask app serves static files from INVOICES_UPLOAD_DIR
-                const downloadUrl = `/static_assets/invoices_uploads/${invoice.file_path}`; // Adjust if your static path is different
-
-                rowsHtml += `
-                    <tr>
-                        <td class="px-4 py-2 text-xs"><span class="math-inline">\{invoice\.invoice\_number\}</td\>
-            data.invoices.forEach(invoice => {
-                const invoiceDate = new Date(invoice.invoice_date).toLocaleDateString('fr-CA');
-                const uploadedDate = new Date(invoice.uploaded_at).toLocaleString('fr-FR');
-                // Construct a direct link to the static asset if INVOICES_UPLOAD_DIR is served
-                // This path needs to match how your Flask app serves static files from INVOICES_UPLOAD_DIR
-                const downloadUrl = `/static_assets/invoices_uploads/${invoice.file_path}`; // Adjust if your static path is different
-
-                rowsHtml += `
-                    <tr>
-                        <td class="px-4 py-2 text-xs"><span class="math-inline">\{invoice\.invoice\_number\}</td\>
-                        <td class="px-4 py-2 text-xs">{invoiceDate}</td>
-                        <td class="px-4 py-2 text-xs text-right">parseFloat(invoice.totala​mountt​tc).toFixed(2)€</td><tdclass="px−4py−2text−xs"><ahref="{downloadUrl}" target="_blank" class="text-brand-classic-gold hover:underline">invoice.filep​ath</a></td><tdclass="px−4py−2text−xs">{uploadedDate}</td>
-                        <td class="px-4 py-2 text-xs space-x-2">
-                        <button onclick="confirmDeleteInvoice(invoice.invoicei​d,′{invoice.invoice_number}')" class="btn-admin-danger p-1 text-xs">Supprimer</button>
+                invoicesTableBody.innerHTML = '<tr><td colspan="7" class="text-center py-4">No invoices found.</td></tr>';
+            } else {
+                data.invoices.forEach(invoice => {
+                    const row = invoicesTableBody.insertRow();
+                    row.innerHTML = `
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${invoice.id}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${invoice.invoice_number}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${invoice.user ? (invoice.user.company_name || invoice.user.email) : 'N/A'} (ID: ${invoice.user_id})</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${new Date(invoice.issue_date).toLocaleDateString()}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${invoice.total_amount.toFixed(2)} ${invoice.currency || 'EUR'}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${invoice.status === 'paid' ? 'bg-green-100 text-green-800' : invoice.status === 'unpaid' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}">
+                                ${invoice.status}
+                            </span>
                         </td>
-                        </tr>
-                        ; }); tableBody.innerHTML = rowsHtml; } else { tableBody.innerHTML =<tr><td colspan="6" class="text-center py-3 text-red-500">${data.message || "Erreur chargement factures."}</td></tr>; } } catch (error) { console.error(Erreur chargement factures pour user ${userId}:`, error);
-                        tableBody.innerHTML = '<tr><td colspan="6" class="text-center py-3 text-red-500">Erreur de communication.</td></tr>';
-                        }
-                        }
-                        
-                        function confirmDelete
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            ${invoice.download_url ? `<a href="${invoice.download_url}" target="_blank" class="text-indigo-600 hover:text-indigo-900 mr-2">View</a>` : ''}
+                            <button class="text-blue-600 hover:text-blue-900" onclick="alert('Edit invoice ${invoice.id} - TBD')">Edit</button>
+                            <button class="text-red-600 hover:text-red-900 ml-2" onclick="confirmDeleteInvoice(${invoice.id})">Delete</button>
+                        </td>
+                    `;
+                });
+            }
+            setupInvoicePagination(data.current_page, data.pages, userId);
+        } else {
+            invoicesTableBody.innerHTML = '<tr><td colspan="7" class="text-center py-4">Failed to load invoices.</td></tr>';
+            showAdminToast(data.message || 'Failed to load invoices.', 'error');
+        }
+    } catch (error) {
+        console.error('Error loading invoices:', error);
+        invoicesTableBody.innerHTML = '<tr><td colspan="7" class="text-center py-4">Error loading invoices.</td></tr>';
+        showAdminToast('Error loading invoices.', 'error');
+    }
+}
+
+function setupInvoicePagination(currentPage, totalPages, currentFilterUserId) {
+    const paginationControls = document.getElementById('invoicePaginationControls');
+    if (!paginationControls) return;
+
+    paginationControls.innerHTML = ''; // Clear existing controls
+
+    if (totalPages <= 1) return;
+
+    // Previous Button
+    if (currentPage > 1) {
+        const prevButton = document.createElement('button');
+        prevButton.textContent = 'Previous';
+        prevButton.classList.add('px-4', 'py-2', 'text-sm', 'font-medium', 'text-gray-700', 'bg-white', 'border', 'border-gray-300', 'rounded-md', 'hover:bg-gray-50');
+        prevButton.addEventListener('click', () => loadInvoices(currentPage - 1, currentFilterUserId));
+        paginationControls.appendChild(prevButton);
+    }
+
+    // Page Numbers (simplified: just show current page and total)
+    const pageInfo = document.createElement('span');
+    pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+    pageInfo.classList.add('px-4', 'py-2', 'text-sm');
+    paginationControls.appendChild(pageInfo);
+
+
+    // Next Button
+    if (currentPage < totalPages) {
+        const nextButton = document.createElement('button');
+        nextButton.textContent = 'Next';
+        nextButton.classList.add('ml-2', 'px-4', 'py-2', 'text-sm', 'font-medium', 'text-gray-700', 'bg-white', 'border', 'border-gray-300', 'rounded-md', 'hover:bg-gray-50');
+        nextButton.addEventListener('click', () => loadInvoices(currentPage + 1, currentFilterUserId));
+        paginationControls.appendChild(nextButton);
+    }
+}
+
+// Make functions globally available if called by inline event handlers
+window.confirmDeleteInvoice = async (invoiceId) => {
+    if (confirm(`Are you sure you want to delete invoice ID ${invoiceId}? This action cannot be undone.`)) {
+        try {
+            const result = await callAdminApi(`/invoices/${invoiceId}`, 'DELETE');
+            if (result.success) {
+                showAdminToast('Invoice deleted successfully!', 'success');
+                loadInvoices(); // Refresh the list
+            } else {
+                showAdminToast(`Failed to delete invoice: ${result.message}`, 'error');
+            }
+        } catch (error) {
+            console.error('Error deleting invoice:', error);
+            showAdminToast('An error occurred while deleting the invoice.', 'error');
+        }
+    }
+};
