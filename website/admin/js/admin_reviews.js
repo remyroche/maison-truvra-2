@@ -1,197 +1,306 @@
-// website/admin/js/admin_reviews.js
+// File: website/admin/js/admin_reviews.js
+document.addEventListener('DOMContentLoaded', () => {
+    if (typeof ensureAdminAuthenticated === 'function' && !ensureAdminAuthenticated()) { return; }
 
-// Assumes: makeAdminApiRequest, showAdminGlobalMessage, checkAdminLogin, translate, API_BASE_URL are available
-let currentReviews = [];
-let currentPage = 1;
-const reviewsPerPage = 20; // or get from a config
+    const reviewsTableBody = document.getElementById('reviewsTableBody');
+    const reviewSearchInput = document.getElementById('reviewSearchInput');
+    const paginationControls = document.getElementById('paginationControls');
 
-async function fetchReviews(page = 1, status = 'all', productId = null) {
-    const tableBody = document.getElementById('reviews-table-body');
-    const loadingRow = document.getElementById('loading-reviews-row');
-    
-    if (loadingRow) loadingRow.classList.remove('hidden');
-    if (page === 1) tableBody.innerHTML = ''; // Clear for new filter/first load
-    if (loadingRow && page === 1) tableBody.appendChild(loadingRow);
+    const reviewModal = document.getElementById('reviewModal');
+    const closeModalBtn = reviewModal ? reviewModal.querySelector('#closeModalBtn') : null;
+    const cancelModalBtn = reviewModal ? reviewModal.querySelector('#cancelModalBtn') : null;
+    const reviewApprovalForm = document.getElementById('reviewApprovalForm');
+    const saveReviewStatusBtn = document.getElementById('saveReviewStatusBtn');
+    const formMessageContainer = reviewModal ? reviewModal.querySelector('#formMessage') : null;
+
+    const reviewProductName = document.getElementById('reviewProductName');
+    const reviewProductId = document.getElementById('reviewProductId');
+    const reviewUserName = document.getElementById('reviewUserName');
+    const reviewUserId = document.getElementById('reviewUserId');
+    const reviewDate = document.getElementById('reviewDate');
+    const reviewRatingStars = document.getElementById('reviewRatingStars');
+    const reviewCommentText = document.getElementById('reviewCommentText');
+    const reviewStatusSelect = document.getElementById('reviewStatus');
+    const reviewIdInput = document.getElementById('reviewId');
 
 
-    let url = `/api/admin/reviews?page=${page}&limit=${reviewsPerPage}`;
-    if (status && status !== 'all') {
-        url += `&status=${status}`;
-    }
-    if (productId) {
-        url += `&product_id=${productId}`;
-    }
+    let currentReviews = [];
+    let editingReviewId = null;
+    let currentPage = 1;
+    const reviewsPerPage = 10;
 
-    try {
-        const data = await makeAdminApiRequest(url, 'GET');
-        currentReviews = data.reviews || [];
-        if (loadingRow) loadingRow.classList.add('hidden');
-        
-        if (currentReviews.length === 0 && page === 1) {
-            tableBody.innerHTML = `<tr><td colspan="8" class="text-center py-6" data-i18n="admin.reviews.noReviewsFound">${translate('admin.reviews.noReviewsFound')}</td></tr>`;
-        } else if (page === 1) { // Only clear if it's the first page of a new load
-             tableBody.innerHTML = ''; // Clear loading row before adding actual data
+    const openModal = (review) => {
+        if (!reviewModal || !reviewApprovalForm || !saveReviewStatusBtn) return;
+        clearFormMessage();
+        reviewApprovalForm.reset();
+        saveReviewStatusBtn.disabled = false;
+        saveReviewStatusBtn.innerHTML = '<i class="fas fa-check-circle mr-2"></i>Update Status';
+
+        editingReviewId = review.id;
+        if (reviewIdInput) reviewIdInput.value = review.id;
+        if (reviewProductName) reviewProductName.textContent = review.product_name || 'N/A';
+        if (reviewProductId) reviewProductId.textContent = review.product_id || 'N/A';
+        if (reviewUserName) reviewUserName.textContent = review.user_name || 'Anonymous';
+        if (reviewUserId) reviewUserId.textContent = review.user_id || 'N/A';
+        if (reviewDate) reviewDate.textContent = new Date(review.created_at).toLocaleDateString();
+        if (reviewRatingStars) reviewRatingStars.innerHTML = generateStarRating(review.rating);
+        if (reviewCommentText) reviewCommentText.textContent = review.comment || 'No comment provided.';
+        if (reviewStatusSelect) reviewStatusSelect.value = review.is_approved ? "true" : "false";
+
+        reviewModal.classList.remove('opacity-0', 'pointer-events-none');
+        reviewModal.classList.add('opacity-100');
+        document.body.classList.add('modal-active');
+    };
+
+    const closeModal = () => {
+        if (!reviewModal) return;
+        reviewModal.classList.add('opacity-0');
+        reviewModal.classList.remove('opacity-100');
+        setTimeout(() => {
+            reviewModal.classList.add('pointer-events-none');
+            document.body.classList.remove('modal-active');
+        }, 250);
+    };
+
+    if(closeModalBtn) closeModalBtn.addEventListener('click', closeModal);
+    if(cancelModalBtn) cancelModalBtn.addEventListener('click', closeModal);
+    window.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && reviewModal && !reviewModal.classList.contains('pointer-events-none')) {
+            closeModal();
         }
+    });
 
+    const generateStarRating = (rating) => {
+        let stars = '';
+        for (let i = 1; i <= 5; i++) {
+            stars += `<i class="fas fa-star rating-star ${i <= rating ? 'selected text-yellow-400' : 'text-gray-300'}"></i>`;
+        }
+        return stars || '<span class="text-gray-500">Not rated</span>';
+    };
 
-        currentReviews.forEach(review => {
-            const row = tableBody.insertRow();
+    const renderReviews = (reviews) => {
+        if(!reviewsTableBody) return;
+        reviewsTableBody.innerHTML = '';
+        if (!reviews || reviews.length === 0) {
+            reviewsTableBody.innerHTML = `<tr><td colspan="7" class="px-6 py-4 text-center text-sm text-gray-500">No reviews found.</td></tr>`;
+            return;
+        }
+        reviews.forEach(review => {
+            const row = reviewsTableBody.insertRow();
+            row.className = `hover:bg-gray-50 transition-colors ${!review.is_approved ? 'bg-yellow-50 opacity-80 hover:opacity-100' : ''}`; // Style pending reviews
             row.innerHTML = `
-                <td class="border-b border-gray-200 px-4 py-2">${review.id}</td>
-                <td class="border-b border-gray-200 px-4 py-2">
-                    <a href="admin_manage_products.html?edit=${review.product_id}" target="_blank" class="text-brand-primary hover:underline">
-                        ${review.product_name || `ID: ${review.product_id}`}
-                    </a>
-                </td>
-                <td class="border-b border-gray-200 px-4 py-2">${review.user_name || review.user_email || 'N/A'}</td>
-                <td class="border-b border-gray-200 px-4 py-2 text-yellow-500">${'<i class="fas fa-star"></i>'.repeat(review.rating)}${'<i class="far fa-star"></i>'.repeat(5 - review.rating)}</td>
-                <td class="border-b border-gray-200 px-4 py-2 max-w-xs truncate" title="${review.comment}">${review.comment}</td>
-                <td class="border-b border-gray-200 px-4 py-2">${new Date(review.created_at).toLocaleDateString()}</td>
-                <td class="border-b border-gray-200 px-4 py-2">
-                    <span class="px-2 py-1 text-xs font-semibold rounded-full ${review.is_approved ? 'bg-green-200 text-green-800' : 'bg-yellow-200 text-yellow-800'}">
-                        ${review.is_approved ? translate('admin.reviews.statusApproved') : translate('admin.reviews.statusPending')}
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700" title="Product ID: ${review.product_id}">${review.product_name || 'N/A'}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700" title="User ID: ${review.user_id}">${review.user_name || 'Anonymous'}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm">${generateStarRating(review.rating)}</td>
+                <td class="px-6 py-4 text-sm text-gray-600 max-w-xs truncate" title="${review.comment}">${review.comment || 'N/A'}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${new Date(review.created_at).toLocaleDateString()}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm">
+                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${review.is_approved ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">
+                        ${review.is_approved ? 'Approved' : 'Pending'}
                     </span>
-                    ${review.admin_comment ? `<p class="text-xs text-gray-500 mt-1" title="${review.admin_comment}"><i class="fas fa-comment-dots mr-1"></i>${review.admin_comment.substring(0,20)}...</p>` : ''}
                 </td>
-                <td class="border-b border-gray-200 px-4 py-2 whitespace-nowrap">
-                    ${!review.is_approved ? `<button onclick="handleReviewAction(${review.id}, 'approve')" class="approve-btn mr-1" title="${translate('admin.reviews.approveAction')}"><i class="fas fa-check"></i></button>` : ''}
-                    ${!review.is_approved ? `<button onclick="handleReviewAction(${review.id}, 'reject')" class="reject-btn mr-1" title="${translate('admin.reviews.rejectAction')}"><i class="fas fa-times"></i></button>` : ''}
-                    <button onclick="handleReviewAction(${review.id}, 'delete')" class="delete-btn" title="${translate('admin.reviews.deleteAction')}"><i class="fas fa-trash"></i></button>
+                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
+                    <button class="view-btn text-blue-600 hover:text-blue-800 p-1 rounded hover:bg-blue-100" data-id="${review.id}" title="View Details & Approve/Reject"><i class="fas fa-eye fa-fw"></i></button>
+                    <button class="delete-btn text-red-600 hover:text-red-800 p-1 rounded hover:bg-red-100" data-id="${review.id}" title="Delete Review"><i class="fas fa-trash-alt fa-fw"></i></button>
                 </td>
             `;
         });
-        setupPagination(data.total_pages, data.current_page, data.total_reviews);
-        currentPage = data.current_page;
 
-    } catch (error) {
-        console.error('Error fetching reviews:', error);
-        if (loadingRow) loadingRow.classList.add('hidden');
-        tableBody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-red-500">${translate('admin.reviews.errorLoading')}: ${error.message}</td></tr>`;
-    }
-}
+        document.querySelectorAll('.view-btn').forEach(button => button.addEventListener('click', handleViewReview));
+        document.querySelectorAll('.delete-btn').forEach(button => button.addEventListener('click', handleDeleteReview));
+    };
 
-function setupPagination(totalPages, currentPageNum, totalReviews) {
-    const paginationControls = document.getElementById('pagination-controls');
-    if (!paginationControls) return;
-    paginationControls.innerHTML = '';
+    const setupPaginationForReviews = (totalReviews) => {
+        if (!paginationControls) return;
+        paginationControls.innerHTML = '';
+        const totalPages = Math.ceil(totalReviews / reviewsPerPage);
+        if (totalPages <= 1) return;
 
-    if (totalReviews === 0) return;
-
-    const statusFilter = document.getElementById('filter-status').value;
-    const productIdFilter = document.getElementById('filter-product-id').value;
-
-    // Previous Button
-    if (currentPageNum > 1) {
-        const prevButton = document.createElement('button');
-        prevButton.innerHTML = `<i class="fas fa-chevron-left mr-1"></i> ${translate('admin.pagination.previous')}`;
-        prevButton.className = 'px-3 py-1 border rounded-md bg-white text-sm hover:bg-gray-50';
-        prevButton.onclick = () => fetchReviews(currentPageNum - 1, statusFilter, productIdFilter || null);
-        paginationControls.appendChild(prevButton);
-    }
-
-    // Page Numbers (simplified)
-    let startPage = Math.max(1, currentPageNum - 2);
-    let endPage = Math.min(totalPages, currentPageNum + 2);
-
-    if (startPage > 1) {
-        const firstButton = document.createElement('button');
-        firstButton.textContent = '1';
-        firstButton.className = `px-3 py-1 border rounded-md text-sm ${1 === currentPageNum ? 'bg-brand-primary text-white' : 'bg-white hover:bg-gray-50'}`;
-        firstButton.onclick = () => fetchReviews(1, statusFilter, productIdFilter || null);
-        paginationControls.appendChild(firstButton);
-        if (startPage > 2) paginationControls.insertAdjacentHTML('beforeend',`<span class="px-3 py-1 text-sm">...</span>`);
-    }
-
-    for (let i = startPage; i <= endPage; i++) {
-        const pageButton = document.createElement('button');
-        pageButton.textContent = i;
-        pageButton.className = `px-3 py-1 border rounded-md text-sm ${i === currentPageNum ? 'bg-brand-primary text-white' : 'bg-white hover:bg-gray-50'}`;
-        pageButton.onclick = () => fetchReviews(i, statusFilter, productIdFilter || null);
-        paginationControls.appendChild(pageButton);
-    }
-    
-    if (endPage < totalPages) {
-        if (endPage < totalPages - 1) paginationControls.insertAdjacentHTML('beforeend',`<span class="px-3 py-1 text-sm">...</span>`);
-        const lastButton = document.createElement('button');
-        lastButton.textContent = totalPages;
-        lastButton.className = `px-3 py-1 border rounded-md text-sm ${totalPages === currentPageNum ? 'bg-brand-primary text-white' : 'bg-white hover:bg-gray-50'}`;
-        lastButton.onclick = () => fetchReviews(totalPages, statusFilter, productIdFilter || null);
-        paginationControls.appendChild(lastButton);
-    }
+        const createPageButton = (htmlContent, pageNum, isDisabled = false, isActive = false) => {
+            const button = document.createElement('button');
+            button.innerHTML = htmlContent;
+            button.className = `px-3 py-1 rounded-md text-sm font-medium border border-gray-300 transition-colors ${isDisabled ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : isActive ? 'bg-indigo-500 text-white border-indigo-500 z-10' : 'bg-white text-gray-700 hover:bg-gray-50'}`;
+            button.disabled = isDisabled;
+            if (isActive) button.setAttribute('aria-current', 'page');
+            button.addEventListener('click', () => { if (!isDisabled && !isActive) { currentPage = pageNum; fetchAndDisplayReviews(); } });
+            return button;
+        };
+        paginationControls.appendChild(createPageButton(`<i class="fas fa-chevron-left mr-1"></i> Prev`, currentPage - 1, currentPage === 1));
+        const pageRange = 1; let pagesShown = new Set(); pagesShown.add(1);
+        for (let i = Math.max(2, currentPage - pageRange); i <= Math.min(totalPages - 1, currentPage + pageRange); i++) pagesShown.add(i);
+        pagesShown.add(totalPages);
+        const sortedPages = Array.from(pagesShown).sort((a,b)=>a-b); let lastPageAdded = 0;
+        sortedPages.forEach(pageNum => {
+            if(lastPageAdded > 0 && pageNum > lastPageAdded + 1) paginationControls.appendChild(createPageButton('...', pageNum -1, true));
+            paginationControls.appendChild(createPageButton(pageNum.toString(), pageNum, false, pageNum === currentPage));
+            lastPageAdded = pageNum;
+        });
+        paginationControls.appendChild(createPageButton(`Next <i class="fas fa-chevron-right ml-1"></i>`, currentPage + 1, currentPage === totalPages));
+    };
 
 
-    // Next Button
-    if (currentPageNum < totalPages) {
-        const nextButton = document.createElement('button');
-        nextButton.innerHTML = `${translate('admin.pagination.next')} <i class="fas fa-chevron-right ml-1"></i>`;
-        nextButton.className = 'px-3 py-1 border rounded-md bg-white text-sm hover:bg-gray-50';
-        nextButton.onclick = () => fetchReviews(currentPageNum + 1, statusFilter, productIdFilter || null);
-        paginationControls.appendChild(nextButton);
-    }
-}
+    const fetchAndDisplayReviews = async () => {
+        if(!reviewsTableBody) return;
+        reviewsTableBody.innerHTML = `<tr><td colspan="7" class="text-center p-4 text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>Loading reviews...</td></tr>`;
+        if(paginationControls) paginationControls.innerHTML = '';
 
-
-let currentAction = null;
-let currentReviewId = null;
-
-function handleReviewAction(reviewId, action) {
-    currentReviewId = reviewId;
-    currentAction = action;
-
-    const modal = document.getElementById('admin-comment-modal');
-    const confirmBtn = document.getElementById('modal-confirm-action-btn');
-    const commentTextarea = document.getElementById('admin-comment-textarea');
-    commentTextarea.value = ''; // Clear previous comment
-
-    if (action === 'delete') {
-        if (confirm(translate('admin.reviews.confirmDelete'))) {
-            performReviewAction(); // No modal for delete, direct action
+        try {
+            const searchTerm = reviewSearchInput ? reviewSearchInput.value.trim() : '';
+            const response = await adminApi.getReviews(searchTerm, currentPage, reviewsPerPage);
+            if (response && response.reviews) {
+                currentReviews = response.reviews;
+                renderReviews(currentReviews);
+                setupPaginationForReviews(response.total_reviews || currentReviews.length);
+                if (currentReviews.length === 0 && searchTerm) {
+                     reviewsTableBody.innerHTML = `<tr><td colspan="7" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">No reviews found matching "${searchTerm}".</td></tr>`;
+                } else if (currentReviews.length === 0) {
+                    reviewsTableBody.innerHTML = `<tr><td colspan="7" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">No reviews submitted yet.</td></tr>`;
+                }
+            } else {
+                renderReviews([]);
+                if(typeof showGlobalUIMessage === 'function') showGlobalUIMessage('Review data is missing in the server response.', 'error');
+            }
+        } catch (error) {
+            console.error('Failed to fetch reviews:', error);
+            reviewsTableBody.innerHTML = `<tr><td colspan="7" class="px-6 py-4 text-center text-sm text-red-500">Error loading reviews: ${error.message}</td></tr>`;
+            if(typeof showGlobalUIMessage === 'function') showGlobalUIMessage(`Error fetching reviews: ${error.message}`, 'error');
         }
-    } else if (action === 'approve' || action === 'reject') {
-        // Show modal for optional admin comment
-        modal.classList.remove('hidden');
-        confirmBtn.onclick = performReviewAction; // Set specific action for confirm button
+    };
+
+    if (reviewApprovalForm) {
+        reviewApprovalForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (!saveReviewStatusBtn) return;
+
+            const reviewData = {
+                is_approved: reviewStatusSelect.value === "true", // Ensure it's a boolean for the backend
+            };
+
+            saveReviewStatusBtn.disabled = true;
+            saveReviewStatusBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Updating...';
+            clearFormMessage();
+
+            try {
+                const response = await adminApi.updateReview(editingReviewId, reviewData);
+                if (response && response.message && response.message.toLowerCase().includes('success')) {
+                    if(typeof showGlobalUIMessage === 'function') showGlobalUIMessage(response.message, 'success');
+                    fetchAndDisplayReviews();
+                    closeModal();
+                } else {
+                    throw new Error(response.error || 'Failed to update review status.');
+                }
+            } catch (error) {
+                console.error('Failed to update review status:', error);
+                showFormMessage(`Error: ${error.message}`, 'error');
+            } finally {
+                saveReviewStatusBtn.disabled = false;
+                saveReviewStatusBtn.innerHTML = '<i class="fas fa-check-circle mr-2"></i>Update Status';
+            }
+        });
     }
-}
 
-async function performReviewAction() {
-    const modal = document.getElementById('admin-comment-modal');
-    const adminComment = document.getElementById('admin-comment-textarea').value;
-    let url, method, body = {};
+    const handleViewReview = async (event) => {
+        const button = event.currentTarget;
+        const reviewId = button.dataset.id;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        button.disabled = true;
 
-    if (currentAction === 'approve') {
-        url = `/api/admin/reviews/${currentReviewId}/approve`;
-        method = 'POST';
-        body = { admin_comment: adminComment || translate('admin.reviews.commentApproved') };
-    } else if (currentAction === 'reject') {
-        url = `/api/admin/reviews/${currentReviewId}/reject`; // This endpoint marks as not approved
-        method = 'POST';
-        body = { admin_comment: adminComment || translate('admin.reviews.commentRejected') };
-    } else if (currentAction === 'delete') {
-        url = `/api/admin/reviews/${currentReviewId}`;
-        method = 'DELETE';
-    } else {
-        return; // Should not happen
+        try {
+            let review = currentReviews.find(r => r.id == reviewId);
+            if (!review) { // If not in current list (e.g. due to pagination), fetch directly
+                review = await adminApi.getReviewById(reviewId);
+            }
+
+            if (review) {
+                openModal(review);
+            } else {
+                if(typeof showGlobalUIMessage === 'function') showGlobalUIMessage('Could not fetch review details.', 'error');
+            }
+        } catch (error) {
+            console.error('Error fetching review for viewing:', error);
+             if(typeof showGlobalUIMessage === 'function') showGlobalUIMessage(`Error fetching review: ${error.message}`, 'error');
+        } finally {
+            button.innerHTML = '<i class="fas fa-eye fa-fw"></i>';
+            button.disabled = false;
+        }
+    };
+
+    const handleDeleteReview = (event) => {
+        const button = event.currentTarget;
+        const reviewId = button.dataset.id;
+        const reviewText = button.closest('tr').querySelector('td:nth-child(4)').textContent.substring(0,30) + '...' || `Review ID ${reviewId}`;
+
+
+        if (typeof showConfirmModal === 'function') {
+            showConfirmModal(
+                `Delete Review?`,
+                `Are you sure you want to delete the review: "<strong>${reviewText}</strong>"? This action cannot be undone.`,
+                async () => { // onConfirm callback
+                    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+                    button.disabled = true;
+                    try {
+                        const response = await adminApi.deleteReview(reviewId);
+                        if (response && response.message && response.message.toLowerCase().includes('success')) {
+                            if(typeof showGlobalUIMessage === 'function') showGlobalUIMessage(response.message, 'success');
+                            fetchAndDisplayReviews();
+                        } else {
+                            throw new Error(response.error || 'Failed to delete review.');
+                        }
+                    } catch (error) {
+                        console.error('Failed to delete review:', error);
+                        if(typeof showGlobalUIMessage === 'function') showGlobalUIMessage(`Error deleting review: ${error.message}`, 'error');
+                        button.innerHTML = '<i class="fas fa-trash-alt fa-fw"></i>';
+                        button.disabled = false;
+                    }
+                }
+            );
+        } else {
+            if(confirm(`Are you sure you want to delete review ID ${reviewId}?`)) {
+                 button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+                 button.disabled = true;
+                adminApi.deleteReview(reviewId)
+                    .then((response) => {
+                        alert(response.message || "Review deleted.");
+                        fetchAndDisplayReviews();
+                    })
+                    .catch(err => {
+                        alert(`Error: ${err.message}`);
+                        button.innerHTML = '<i class="fas fa-trash-alt fa-fw"></i>';
+                        button.disabled = false;
+                    });
+            }
+        }
+    };
+
+    let searchTimeout;
+    if (reviewSearchInput) {
+        reviewSearchInput.addEventListener('input', () => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                currentPage = 1;
+                fetchAndDisplayReviews();
+            }, 300);
+        });
     }
 
-    try {
-        const response = await makeAdminApiRequest(url, method, body);
-        showAdminGlobalMessage(response.message || `${translate('admin.reviews.actionSuccessPrefix')} ${currentAction}`, 'success');
-        // Refresh the current page of reviews
-        const statusFilter = document.getElementById('filter-status').value;
-        const productIdFilter = document.getElementById('filter-product-id').value;
-        fetchReviews(currentPage, statusFilter, productIdFilter || null);
-    } catch (error) {
-        showAdminGlobalMessage(error.message || `${translate('admin.reviews.actionErrorPrefix')} ${currentAction}`, 'error');
-    } finally {
-        if (modal) modal.classList.add('hidden');
-        currentAction = null;
-        currentReviewId = null;
-    }
-}
+    const showFormMessage = (message, type = 'info') => {
+        if (!formMessageContainer) return;
+        formMessageContainer.innerHTML = message;
+        formMessageContainer.className = 'text-sm p-3 rounded-md mt-2 ';
+        if (type === 'success') formMessageContainer.classList.add('text-green-700', 'bg-green-100');
+        else if (type === 'error') formMessageContainer.classList.add('text-red-700', 'bg-red-100');
+        else formMessageContainer.classList.add('text-blue-700', 'bg-blue-100');
+        formMessageContainer.classList.remove('hidden');
+    };
+    const clearFormMessage = () => {
+        if (!formMessageContainer) return;
+        formMessageContainer.textContent = '';
+        formMessageContainer.classList.add('hidden');
+    };
 
+    const initializePage = async () => {
+        await fetchAndDisplayReviews();
+    };
 
-async function initAdminReviewsPage() {
-    await checkAdminLogin(); // Redirects if not logged in
-
-    const applyFiltersBtn = docum
+    initializePage();
+});
