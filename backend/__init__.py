@@ -8,6 +8,25 @@ from flask import g
 from .config import AppConfig, configure_asset_paths # Import new helper
 from .database import init_db, populate_initial_data, init_db_command
 
+@app.route('/passports/<path:filename>')
+def serve_passport(filename):
+    from werkzeug.utils import safe_join # Use safe_join for better path security
+    from flask import abort
+
+    passport_dir = current_app.config['PASSPORTS_OUTPUT_DIR']
+    try:
+        safe_path = safe_join(passport_dir, filename)
+    except Exception: # Catches potential path traversal if safe_join raises an error (e.g. WerkzeugSecurityError)
+        return abort(404)
+
+    if not os.path.normpath(safe_path).startswith(os.path.normpath(passport_dir) + os.sep) and not os.path.normpath(safe_path) == os.path.normpath(passport_dir) : # Double check after join
+         return abort(403) # Forbidden
+
+    if not os.path.isfile(safe_path):
+        return abort(404)
+
+    return send_from_directory(passport_dir, filename)
+    
 def create_app(config_class=AppConfig):
     app = Flask(__name__, static_folder=os.path.join(os.path.dirname(os.path.dirname(__file__)), 'website', 'static_assets'))
     # Configure static_folder to point to a directory at the project root, e.g., 'project_root/static_assets'
