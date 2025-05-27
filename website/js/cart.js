@@ -1,300 +1,205 @@
-// website/js/cart.js
-// Manages shopping cart functionality using localStorage.
+// website/js/checkout.js
 
 /**
- * Retrieves the cart from localStorage.
- * @returns {Array<object>} The cart items array.
- */// website/js/cart.js
-
-function getCart() {
-    const cartString = localStorage.getItem('maisonTruvraCart');
-    try {
-        return cartString ? JSON.parse(cartString) : [];
-    } catch (e) {// website/js/cart.js
-
-/**
- * Retrieves the cart from localStorage.
- * @returns {Array<object>} The cart items array.
+ * Handles the checkout form submission.
+ * Validates form fields, prepares order data, and sends it to the backend.
+ * @param {Event} event - The form submission event.
  */
-function getCart() {
-    const cartString = localStorage.getItem('maisonTruvraCart');
-    try {
-        return cartString ? JSON.parse(cartString) : [];
-    } catch (e) {
-        console.error(t('Erreur_parsing_panier_localStorage'), e); // i18n
-        localStorage.removeItem('maisonTruvraCart'); // Clear corrupted cart
-        return [];
-    }
-}
-
-/**
- * Saves the cart to localStorage and updates relevant UI displays.
- * @param {Array<object>} cart - The cart items array to save.
- */
-function saveCart(cart) {
-    localStorage.setItem('maisonTruvraCart', JSON.stringify(cart));
-    if (typeof updateCartCountDisplay === "function") updateCartCountDisplay();
-    if (document.body.id === 'page-panier' && typeof displayCartItems === "function") {
-        displayCartItems(); // Refresh cart page if currently viewed
-    }
-}
-
-/**
- * Adds a product to the shopping cart or updates its quantity if it already exists.
- * @param {object} product - The product object (from API, should include localized name).
- * @param {number} quantity - The quantity to add.
- * @param {object|null} [selectedOptionDetails=null] - Details of the selected weight option, if any.
- * @returns {boolean} True if item was added/updated successfully, false otherwise (e.g., stock issue).
- */
-function addToCart(product, quantity, selectedOptionDetails = null) {
-    let cart = getCart();
-    const productId = product.id;
-    // Ensure cartItemId is a string for consistent matching
-    const cartItemId = selectedOptionDetails ? `${productId}_${selectedOptionDetails.option_id}` : String(productId);
-
-    const existingItemIndex = cart.findIndex(item => String(item.cartId) === cartItemId);
-    const stockAvailable = selectedOptionDetails ? parseInt(selectedOptionDetails.stock) : parseInt(product.stock_quantity);
-    const itemNameForMessage = product.name + (selectedOptionDetails ? ` (${selectedOptionDetails.weight_grams}g)` : ''); // product.name is already localized
-
-    if (existingItemIndex > -1) {
-        const newQuantity = cart[existingItemIndex].quantity + quantity;
-        if (newQuantity > stockAvailable) {
-            if (typeof showGlobalMessage === "function" && typeof t === "function") {
-                showGlobalMessage(t('Stock_insuffisant_MAX_pour', { productName: itemNameForMessage, stock: stockAvailable }), "error");
-            }
-            return false;
-        }
-        cart[existingItemIndex].quantity = newQuantity;
-    } else {
-        if (quantity > stockAvailable) {
-             if (typeof showGlobalMessage === "function" && typeof t === "function") {
-                showGlobalMessage(t('Stock_insuffisant_pour_MAX', { productName: itemNameForMessage, stock: stockAvailable }), "error");
-            }
-            return false;
-        }
-        const cartItem = {
-            cartId: cartItemId, // Store as string
-            id: productId,
-            name: product.name, // Assumed to be localized from product detail
-            price: selectedOptionDetails ? parseFloat(selectedOptionDetails.price) : parseFloat(product.base_price),
-            quantity: quantity,
-            image: product.image_url_main || 'https://placehold.co/100x100/F5EEDE/7D6A4F?text=Img',
-            variant: selectedOptionDetails ? `${selectedOptionDetails.weight_grams}g` : null,
-            variant_option_id: selectedOptionDetails ? selectedOptionDetails.option_id : null,
-            stock: stockAvailable // Store current stock for reference in cart
-        };
-        cart.push(cartItem);
-    }
-    saveCart(cart);
-    return true;
-}
-
-/**
- * Handles adding a product to the cart from the product detail page.
- * Gathers selected quantity and weight option (if any).
- */
-function handleAddToCartFromDetail() {
-    if (!currentProductDetail) { // currentProductDetail from product.js
-        if (typeof showGlobalMessage === "function" && typeof t === "function") {
-            showGlobalMessage(t('Details_du_produit_non_charges'), "error");
-        }
-        return;
-    }
-    const quantityInput = document.getElementById('quantity-select');
-    if (!quantityInput) {
-        console.error("Element 'quantity-select' not found on product detail page.");
-        if (typeof showGlobalMessage === "function" && typeof t === "function") {
-             showGlobalMessage(t('Erreur_configuration_page'), "error"); // Generic error
-        }
-        return;
-    }
-    const quantity = parseInt(quantityInput.value);
-    const weightOptionsSelect = document.getElementById('weight-options-select');
-    let selectedOptionDetails = null;
-    const productNameForMessage = currentProductDetail.name; // Already localized
-
-    if (currentProductDetail.weight_options && currentProductDetail.weight_options.length > 0) {
-        if (!weightOptionsSelect) {
-            console.error("Element 'weight-options-select' not found.");
-             if (typeof showGlobalMessage === "function" && typeof t === "function") {
-                showGlobalMessage(t('Erreur_configuration_page'), "error");
-            }
-            return;
-        }
-        const selectedRawOption = weightOptionsSelect.options[weightOptionsSelect.selectedIndex];
-        if (!selectedRawOption || selectedRawOption.disabled) {
-             if (typeof showGlobalMessage === "function" && typeof t === "function") {
-                showGlobalMessage(t('Veuillez_selectionner_une_option_de_poids_valide_et_en_stock'), "error");
-            }
-            return;
-        }
-        selectedOptionDetails = {
-            option_id: selectedRawOption.value,
-            price: selectedRawOption.dataset.price,
-            weight_grams: selectedRawOption.dataset.weightGrams,
-            stock: parseInt(selectedRawOption.dataset.stock)
-        };
-        if (selectedOptionDetails.stock < quantity) {
-            if (typeof showGlobalMessage === "function" && typeof t === "function") {
-                showGlobalMessage(t('Stock_insuffisant_pour_MAX', { productName: `${productNameForMessage} (${selectedOptionDetails.weight_grams}g)`, stock: selectedOptionDetails.stock }), "error");
-            }
-            return;
-        }
-    } else { // Simple product (no weight options)
-        if (currentProductDetail.stock_quantity < quantity) {
-            if (typeof showGlobalMessage === "function" && typeof t === "function") {
-                showGlobalMessage(t('Stock_insuffisant_pour_MAX', { productName: productNameForMessage, stock: currentProductDetail.stock_quantity }), "error");
-            }
-            return;
-        }
-    }
-
-    const addedSuccessfully = addToCart(currentProductDetail, quantity, selectedOptionDetails);
-    if (addedSuccessfully && typeof openModal === "function") {
-        openModal('add-to-cart-modal', productNameForMessage); // openModal from ui.js
-    }
-}
-
-/**
- * Updates the quantity of an item in the cart. Removes item if quantity <= 0.
- * Prevents quantity from exceeding available stock.
- * @param {string} cartItemId - The unique ID of the cart item.
- * @param {number} newQuantity - The new quantity for the item.
- */
-function updateCartItemQuantity(cartItemId, newQuantity) {
-    let cart = getCart();
-    const itemIndex = cart.findIndex(item => String(item.cartId) === String(cartItemId));
-    if (itemIndex > -1) {
-        if (newQuantity <= 0) {
-            cart.splice(itemIndex, 1); // Remove item
-        } else if (newQuantity > cart[itemIndex].stock) {
-            if (typeof showGlobalMessage === "function" && typeof t === "function") {
-                showGlobalMessage(t('Quantite_maximale_de_ atteinte_pour', { stock: cart[itemIndex].stock, productName: cart[itemIndex].name }), "info");
-            }
-            cart[itemIndex].quantity = cart[itemIndex].stock; // Set to max available
-        } else {
-            cart[itemIndex].quantity = newQuantity;
-        }
-        saveCart(cart);
-    }
-}
-
-/**
- * Removes an item completely from the cart.
- * @param {string} cartItemId - The unique ID of the cart item to remove.
- */
-function removeCartItem(cartItemId) {
-    let cart = getCart();
-    cart = cart.filter(item => String(item.cartId) !== String(cartItemId));
-    saveCart(cart);
-}
-
-/**
- * Updates the cart item count display in the header.
- */
-function updateCartCountDisplay() {
-    const cart = getCart();
-    const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
-    const cartCountDesktop = document.getElementById('cart-item-count');
-    const cartCountMobile = document.getElementById('mobile-cart-item-count');
-
-    if (cartCountDesktop) cartCountDesktop.textContent = totalItems;
-    if (cartCountMobile) cartCountMobile.textContent = totalItems;
-}
-
-/**
- * Displays cart items on the cart page.
- * Handles empty cart message and summary display.
- */
-function displayCartItems() {
-    const cartItemsContainer = document.getElementById('cart-items-container');
-    const cartSummaryContainer = document.getElementById('cart-summary-container');
-
-    if (!cartItemsContainer || !cartSummaryContainer) {
-        console.error("Cart items or summary container not found on cart page.");
-        return;
-    }
-
-    cartItemsContainer.innerHTML = ''; // Clear previous items
-    const cart = getCart();
+async function handleCheckout(event) {
+    event.preventDefault();
+    const form = event.target;
+    if (typeof clearFormErrors === "function") clearFormErrors(form); // clearFormErrors from ui.js
+    const cart = getCart(); // getCart from cart.js
+    const currentUser = getCurrentUser(); // getCurrentUser from auth.js
 
     if (cart.length === 0) {
-        cartItemsContainer.innerHTML = `<p id="empty-cart-message" class="text-center text-brand-earth-brown py-8">${t('Votre_panier_est_actuellement_vide')} <a href="nos-produits.html" class="text-brand-classic-gold hover:underline" data-translate-key="Continuer_mes_achats">${t('Continuer_mes_achats')}</a></p>`;
-        cartSummaryContainer.style.display = 'none';
-    } else {
-        cartSummaryContainer.style.display = 'block'; // Or 'flex' depending on layout
-        cart.forEach(item => {
-            const itemTotal = item.price * item.quantity;
-            const cartItemHTML = `
-                <div class="cart-item" data-cart-item-id="${item.cartId}">
-                    <div class="flex items-center flex-grow">
-                        <img src="${item.image}" alt="${item.name}" class="cart-item-image" onerror="this.onerror=null;this.src='https://placehold.co/80x80/F5EEDE/7D6A4F?text=ImgErr';">
-                        <div>
-                            <h3 class="text-md font-semibold text-brand-near-black">${item.name}</h3>
-                            ${item.variant ? `<p class="text-xs text-brand-warm-taupe">${item.variant}</p>` : ''}
-                            <p class="text-sm text-brand-classic-gold">${parseFloat(item.price).toFixed(2)} €</p>
-                        </div>
-                    </div>
-                    <div class="flex items-center space-x-2 sm:space-x-3">
-                        <div class="quantity-input-controls flex items-center">
-                            <button onclick="changeCartItemQuantity('${item.cartId}', -1)" class="px-2 py-0.5 border border-brand-warm-taupe/50 text-brand-near-black hover:bg-brand-warm-taupe/20 text-sm rounded-l">-</button>
-                            <input type="number" value="${item.quantity}" min="1" max="${item.stock}" class="quantity-input cart-item-quantity-input w-10 sm:w-12 text-center border-y border-brand-warm-taupe/50 py-1 text-sm appearance-none" readonly data-id="${item.cartId}">
-                            <button onclick="changeCartItemQuantity('${item.cartId}', 1)" class="px-2 py-0.5 border border-brand-warm-taupe/50 text-brand-near-black hover:bg-brand-warm-taupe/20 text-sm rounded-r">+</button>
-                        </div>
-                        <p class="text-md font-semibold text-brand-near-black w-20 text-right">${itemTotal.toFixed(2)} €</p>
-                        <button onclick="removeCartItem('${item.cartId}')" title="${t('Supprimer_larticle')}" class="text-brand-truffle-burgundy hover:text-red-700">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
-                    </div>
-                </div>`;
-            cartItemsContainer.insertAdjacentHTML('beforeend', cartItemHTML);
-        });
-        if (typeof updateCartSummary === "function") updateCartSummary();
-    }
-}
-
-/**
- * Helper function to change item quantity from cart page controls.
- * @param {string} cartItemId - The ID of the cart item.
- * @param {number} change - The amount to change the quantity by (+1 or -1).
- */
-function changeCartItemQuantity(cartItemId, change) {
-    const inputElement = document.querySelector(`.cart-item-quantity-input[data-id="${cartItemId}"]`);
-    if (inputElement) {
-        let currentQuantity = parseInt(inputElement.value);
-        updateCartItemQuantity(cartItemId, currentQuantity + change);
-        // displayCartItems() will be called by saveCart() to re-render the specific item or whole list
-    }
-}
-
-/**
- * Updates the cart summary section (subtotal, shipping, total) on the cart page.
- */
-function updateCartSummary() {
-    const cart = getCart();
-    const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-    // Example shipping logic: Free over 75€, otherwise 7.50€.
-    // This could be more complex, fetched from an API, or based on weight/destination.
-    const shipping = subtotal > 0 && subtotal < 75 ? 7.50 : 0;
-    const total = subtotal + shipping;
-
-    const subtotalEl = document.getElementById('cart-subtotal');
-    const shippingEl = document.getElementById('cart-shipping');
-    const totalEl = document.getElementById('cart-total');
-
-    if (subtotalEl) subtotalEl.textContent = `${subtotal.toFixed(2)} €`;
-    if (shippingEl) {
-        if (subtotal > 0) {
-            shippingEl.textContent = shipping > 0 ? `${shipping.toFixed(2)} €` : t('Gratuite');
-        } else {
-            shippingEl.textContent = t('N_A'); // Not Applicable or a dash
+        if (typeof showGlobalMessage === "function" && typeof t === "function") {
+            showGlobalMessage(t('Votre_panier_est_vide_Impossible_de_proceder_au_paiement'), "error");
         }
+        return;
     }
-    if (totalEl) totalEl.textContent = `${total.toFixed(2)} €`;
 
-    // Ensure summary container visibility is correct based on cart contents
-    const cartSummaryContainer = document.getElementById('cart-summary-container');
-    if (cartSummaryContainer) {
-        cartSummaryContainer.style.display = cart.length > 0 ? 'block' : 'none'; // Or 'flex' based on layout
+    let isValid = true;
+    // Define required fields and their validation messages (using i18n keys)
+    const requiredFields = [
+        { id: 'checkout-email', validator: validateEmail, messageKey: "E-mail_invalide" }, // validateEmail from ui.js
+        { id: 'checkout-firstname', messageKey: "Prenom_requis" },
+        { id: 'checkout-lastname', messageKey: "Nom_requis" },
+        { id: 'checkout-address', messageKey: "Adresse_requise" },
+        { id: 'checkout-zipcode', messageKey: "Code_postal_requis" },
+        { id: 'checkout-city', messageKey: "Ville_requise" },
+        { id: 'checkout-country', messageKey: "Pays_requis" }
+    ];
+
+    requiredFields.forEach(fieldInfo => {
+        const fieldElement = form.querySelector(`#${fieldInfo.id}`);
+        if (fieldElement) { // Field might not exist if user is logged in and info is pre-filled (e.g. email)
+            const value = fieldElement.value.trim();
+            if (!value || (fieldInfo.validator && !fieldInfo.validator(value))) {
+                if (typeof setFieldError === "function" && typeof t === "function") {
+                    setFieldError(fieldElement, t(fieldInfo.messageKey)); // setFieldError from ui.js
+                }
+                isValid = false;
+            }
+        }
+    });
+
+    // Basic presence check for mock payment fields
+    const paymentFields = ['card-number', 'card-expiry', 'card-cvc', 'cardholder-name'];
+    paymentFields.forEach(id => {
+        const field = form.querySelector(`#${id}`);
+        if (field && !field.value.trim()) {
+            if (typeof setFieldError === "function" && typeof t === "function") {
+                setFieldError(field, t('Ce_champ_de_paiement_est_requis'));
+            }
+            isValid = false;
+        }
+    });
+
+    if (!isValid) {
+        if (typeof showGlobalMessage === "function" && typeof t === "function") {
+            showGlobalMessage(t('Veuillez_corriger_les_erreurs_dans_le_formulaire_de_paiement'), "error");
+        }
+        return;
     }
+
+    // Prepare order data
+    const customerEmail = currentUser ? currentUser.email : form.querySelector('#checkout-email').value;
+    const shippingAddress = {
+        firstname: form.querySelector('#checkout-firstname').value,
+        lastname: form.querySelector('#checkout-lastname').value,
+        address: form.querySelector('#checkout-address').value,
+        apartment: form.querySelector('#checkout-apartment') ? form.querySelector('#checkout-apartment').value : '',
+        zipcode: form.querySelector('#checkout-zipcode').value,
+        city: form.querySelector('#checkout-city').value,
+        country: form.querySelector('#checkout-country').value,
+        phone: form.querySelector('#checkout-phone') ? form.querySelector('#checkout-phone').value : ''
+    };
+
+    const orderData = {
+        customerEmail: customerEmail,
+        shippingAddress: shippingAddress,
+        cartItems: cart.map(item => ({
+            id: item.id,
+            name: item.name, // Name is already localized in the cart object
+            quantity: item.quantity,
+            price: item.price, // Price at time of adding to cart
+            variant: item.variant,
+            variant_option_id: item.variant_option_id
+        })),
+        userId: currentUser ? currentUser.id : null,
+        lang: typeof getCurrentLang === "function" ? getCurrentLang() : 'fr' // Send language preference
+    };
+
+    if (typeof showGlobalMessage === "function" && typeof t === "function") {
+        showGlobalMessage(t('Traitement_de_la_commande'), "info", 60000); // Long timeout for processing
+    }
+
+    try {
+        // makeApiRequest from api.js
+        const result = await makeApiRequest('/orders/checkout', 'POST', orderData, !!currentUser);
+        if (result.success) {
+            if (typeof showGlobalMessage === "function" && typeof t === "function") {
+                showGlobalMessage(t('Commande_passee_avec_succes_Montant_total', { orderId: result.orderId, totalAmount: parseFloat(result.totalAmount).toFixed(2) }), "success", 10000);
+            }
+            if (typeof saveCart === "function") saveCart([]); // Clear cart on successful order
+            sessionStorage.setItem('lastOrderDetails', JSON.stringify(result)); // Store for confirmation page
+            window.location.href = 'confirmation-commande.html';
+        } else {
+            if (typeof showGlobalMessage === "function" && typeof t === "function") {
+                showGlobalMessage(result.message || t('Echec_de_la_commande'), "error");
+            }
+        }
+    } catch (error) {
+        // Error message is likely shown by makeApiRequest's global error handler
+        console.error("Erreur lors du checkout:", error);
+    }
+}
+
+/**
+ * Initializes the checkout page.
+ * Sets up form submission listener and pre-fills user data if logged in.
+ * Displays cart summary.
+ */
+function initializeCheckoutPage() {
+    const checkoutForm = document.getElementById('checkout-form');
+    if (checkoutForm) {
+        checkoutForm.addEventListener('submit', handleCheckout);
+    }
+
+    const currentUser = getCurrentUser(); // from auth.js
+    const checkoutEmailField = document.getElementById('checkout-email');
+    const checkoutFirstname = document.getElementById('checkout-firstname');
+    const checkoutLastname = document.getElementById('checkout-lastname');
+
+    // Pre-fill form if user is logged in
+    if (currentUser && checkoutEmailField) {
+        checkoutEmailField.value = currentUser.email;
+        checkoutEmailField.readOnly = true;
+        checkoutEmailField.classList.add('bg-gray-100', 'cursor-not-allowed');
+    }
+    if (currentUser && checkoutFirstname && currentUser.prenom) {
+        checkoutFirstname.value = currentUser.prenom;
+    }
+    if (currentUser && checkoutLastname && currentUser.nom) {
+        checkoutLastname.value = currentUser.nom;
+    }
+
+    // Display cart summary
+    const cart = getCart(); // from cart.js
+    const checkoutCartSummary = document.getElementById('checkout-cart-summary');
+    if (checkoutCartSummary && cart.length > 0) {
+        let summaryHtml = `<h3 class="text-lg font-serif text-brand-near-black mb-4" data-translate-key="Recapitulatif_de_votre_commande">${t('Recapitulatif_de_votre_commande')}</h3><ul class="space-y-2 mb-4">`;
+        let subtotal = 0;
+        cart.forEach(item => {
+            summaryHtml += `<li class="flex justify-between text-sm"><span>${item.name} ${item.variant ? '(' + item.variant + ')' : ''} x ${item.quantity}</span> <span>${(item.price * item.quantity).toFixed(2)}€</span></li>`;
+            subtotal += item.price * item.quantity;
+        });
+        const shipping = subtotal > 0 && subtotal < 75 ? 7.50 : 0; // Example shipping
+        const total = subtotal + shipping;
+        summaryHtml += `</ul>
+            <div class="border-t border-brand-warm-taupe/30 pt-4 space-y-1">
+                <p class="flex justify-between text-sm"><span data-translate-key="Sous-total">${t('Sous-total')}</span> <span>${subtotal.toFixed(2)}€</span></p>
+                <p class="flex justify-between text-sm"><span data-translate-key="Livraison">${t('Livraison')}</span> <span>${shipping > 0 ? shipping.toFixed(2) + '€' : t('Gratuite')}</span></p>
+                <p class="flex justify-between text-lg font-semibold text-brand-near-black"><span data-translate-key="Total">${t('Total')}</span> <span>${total.toFixed(2)}€</span></p>
+            </div>
+        `;
+        checkoutCartSummary.innerHTML = summaryHtml;
+    } else if (checkoutCartSummary) {
+        checkoutCartSummary.innerHTML = `<p data-translate-key="Votre_panier_est_actuellement_vide">${t('Votre_panier_est_actuellement_vide')}</p>`;
+        const proceedButton = document.querySelector('#checkout-form button[type="submit"]');
+        if (proceedButton) proceedButton.disabled = true; // Disable checkout if cart is empty
+    }
+    // Ensure static parts of the form are translated if they use data-translate-key
+    if (window.translatePageElements) translatePageElements();
+}
+
+/**
+ * Initializes the order confirmation page.
+ * Retrieves order details from session storage and displays them.
+ */
+function initializeConfirmationPage() {
+    const orderDetailsString = sessionStorage.getItem('lastOrderDetails');
+    const confirmationOrderIdEl = document.getElementById('confirmation-order-id');
+    const confirmationTotalAmountEl = document.getElementById('confirmation-total-amount');
+    const confirmationMessageEl = document.getElementById('confirmation-message'); // For the main message
+
+    if (orderDetailsString && confirmationOrderIdEl && confirmationTotalAmountEl) {
+        try {
+            const orderDetails = JSON.parse(orderDetailsString);
+            confirmationOrderIdEl.textContent = orderDetails.orderId;
+            confirmationTotalAmountEl.textContent = parseFloat(orderDetails.totalAmount).toFixed(2);
+            // Optionally, clear the details from session storage after displaying
+            // sessionStorage.removeItem('lastOrderDetails');
+        } catch (e) {
+            console.error(t('Erreur_parsing_details_commande'), e); // i18n
+            if (confirmationMessageEl) confirmationMessageEl.textContent = t('Erreur_affichage_details_commande'); // i18n
+        }
+    } else if (confirmationMessageEl) {
+        confirmationMessageEl.textContent = t('Details_de_la_commande_non_trouves'); // i18n
+        if (confirmationOrderIdEl) confirmationOrderIdEl.textContent = t('N_A'); // i18n
+        if (confirmationTotalAmountEl) confirmationTotalAmountEl.textContent = t('N_A'); // i18n
+    }
+    // Translate static parts of the page
+    if (window.translatePageElements) translatePageElements();
 }
