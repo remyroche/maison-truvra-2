@@ -2,11 +2,18 @@
 from flask import Blueprint, request, jsonify, current_app, g
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
+import datetime# backend/auth/routes.py
+from flask import Blueprint, request, jsonify, current_app, g
+from werkzeug.security import generate_password_hash, check_password_hash
+import jwt
 import datetime
 import sqlite3
 import uuid # For mock token generation
 from ..database import get_db
-from ..utils import is_valid_email
+from ..utils import is_valid_email # Assuming is_valid_email from backend/utils.py
+# Assuming send_email_alert is in backend/utils.py and configured
+from ..utils import send_email_alert
+
 
 auth_bp = Blueprint('auth_bp', __name__, url_prefix='/api/auth')
 
@@ -28,13 +35,14 @@ def register_user():
         db = get_db()
         cursor = db.cursor()
         hashed_password = generate_password_hash(password)
+        # For B2C, is_approved is TRUE and status is 'active' by default
         cursor.execute(
-            "INSERT INTO users (email, password_hash, nom, prenom, is_admin, user_type) VALUES (?, ?, ?, ?, ?, ?)",
-            (email, hashed_password, nom, prenom, False, 'b2c') # user_type is 'b2c'
+            "INSERT INTO users (email, password_hash, nom, prenom, is_admin, user_type, is_approved, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (email, hashed_password, nom, prenom, False, 'b2c', True, 'active')
         )
         db.commit()
         user_id = cursor.lastrowid
-        user_info = {"id": user_id, "email": email, "nom": nom, "prenom": prenom, "is_admin": False, "user_type": "b2c"}
+        user_info = {"id": user_id, "email": email, "nom": nom, "prenom": prenom, "is_admin": False, "user_type": "b2c", "is_approved": True, "status": "active"}
         current_app.logger.info(f"Utilisateur B2C enregistré : {email}")
         return jsonify({
             "success": True,
@@ -78,7 +86,7 @@ def register_professional_user():
         hashed_password = generate_password_hash(password)
         cursor.execute(
             "INSERT INTO users (email, password_hash, nom, prenom, company_name, phone_number, is_admin, user_type, is_approved, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (email, hashed_password, contact_nom, contact_prenom, company_name, phone_number, False, 'b2b', False, 'pending_approval') # is_approved = False, status = 'pending_approval' for B2B
+            (email, hashed_password, contact_nom, contact_prenom, company_name, phone_number, False, 'b2b', False, 'pending_approval')
         )
         db.commit()
         user_id = cursor.lastrowid
@@ -86,13 +94,37 @@ def register_professional_user():
             "id": user_id, "email": email,
             "nom": contact_nom, "prenom": contact_prenom,
             "company_name": company_name, "phone_number": phone_number,
-            "is_admin": False, "user_type": "b2b"
+            "is_admin": False, "user_type": "b2b", "is_approved": False, "status": "pending_approval"
         }
-        current_app.logger.info(f"Utilisateur B2B (professionnel) enregistré : {email} pour {company_name}")
-        # TODO: Potentially send admin notification for B2B registration approval
+        current_app.logger.info(f"Utilisateur B2B (professionnel) enregistré : {email} pour {company_name}. En attente d'approbation.")
+        
+        # Mock sending email to admin for approval
+        admin_email_recipient = current_app.config.get('ADMIN_ALERT_EMAIL', current_app.config.get('ADMIN_EMAIL'))
+        if admin_email_recipient:
+            email_subject = "Nouvelle demande d'inscription professionnelle Maison Trüvra"
+            email_body = (
+                f"Une nouvelle demande de compte professionnel a été soumise :\n\n"
+                f"Email: {email}\n"
+                f"Entreprise: {company_name}\n"
+                f"Contact: {contact_prenom} {contact_nom}\n"
+                f"Téléphone: {phone_number or 'Non fourni'}\n\n"
+                f"Veuillez examiner cette demande dans le panneau d'administration."
+            )
+            # This uses the send_email_alert from backend/utils.py
+            # Ensure MAIL_SERVER, MAIL_USERNAME, etc. are configured in config.py for real emails.
+            # For now, it will log if not configured, which serves as a mock.
+            email_sent = send_email_alert(email_subject, email_body, recipient_email=admin_email_recipient)
+            if email_sent:
+                current_app.logger.info(f"Alerte email (simulée ou réelle) envoyée à {admin_email_recipient} pour la nouvelle inscription B2B de {email}.")
+            else:
+                current_app.logger.warning(f"Échec de l'envoi de l'alerte email pour la nouvelle inscription B2B de {email}. Vérifiez la configuration MAIL.")
+        else:
+            current_app.logger.warning("ADMIN_ALERT_EMAIL non configuré. Impossible d'envoyer une alerte pour la nouvelle inscription B2B.")
+
         return jsonify({
             "success": True,
-            "message": "Un administrateur doit valider votre compte.", # Updated text
+            # This message is directly used. If you want i18n, pass a key.
+            "message": "Un administrateur doit valider votre compte.",
             "user": user_info
         }), 201
     except sqlite3.IntegrityError:
@@ -119,43 +151,56 @@ def login_user():
     try:
         db = get_db()
         cursor = db.cursor()
-        # Fetch user_type along with other details
-        cursor.execute("SELECT id, email, password_hash, nom, prenom, is_admin, user_type, company_name, phone_number FROM users WHERE email = ?", (email,))
+        cursor.execute("SELECT id, email, password_hash, nom, prenom, is_admin, user_type, company_name, phone_number, is_approved, status FROM users WHERE email = ?", (email,))
         user_row = cursor.fetchone()
     except Exception as e:
         current_app.logger.error(f"Erreur DB lors de la connexion pour {email}: {e}", exc_info=True)
+        if db: db.close() # Ensure db is closed on error before returning
         return jsonify({"success": False, "message": "Erreur de base de données."}), 500
-    finally:
-        if db: db.close()
+    # finally: # Moved db.close() to be inside try and after successful operations or specific error handling
+        # if db: db.close() # This would close before returning from success path
 
     if user_row and check_password_hash(user_row['password_hash'], password):
+        if user_row['user_type'] == 'b2b' and not user_row['is_approved']:
+            current_app.logger.warning(f"Tentative de connexion B2B non approuvé: {email}")
+            if db: db.close()
+            return jsonify({"success": False, "message": "Votre compte professionnel est en attente d'approbation."}), 403
+
+        if user_row['status'] != 'active':
+            current_app.logger.warning(f"Tentative de connexion pour compte non actif: {email}, statut: {user_row['status']}")
+            # Provide a more generic message for security unless status is 'pending_approval'
+            message = "Votre compte n'est pas actif. Veuillez contacter le support."
+            if user_row['status'] == 'pending_approval':
+                message = "Votre compte est en attente d'approbation."
+            if db: db.close()
+            return jsonify({"success": False, "message": message}), 403
+
+
         user_data = {
             "id": user_row['id'],
             "email": user_row['email'],
             "nom": user_row['nom'],
             "prenom": user_row['prenom'],
             "is_admin": bool(user_row['is_admin']),
-            "user_type": user_row['user_type'], # Include user_type
-            "company_name": user_row['company_name'], # Include company_name
-            "phone_number": user_row['phone_number']
+            "user_type": user_row['user_type'],
+            "company_name": user_row['company_name'],
+            "phone_number": user_row['phone_number'],
+            "is_approved": bool(user_row['is_approved']),
+            "status": user_row['status']
         }
-    
-    if user_row and check_password_hash(user_row['password_hash'], password):
-        if user_row['user_type'] == 'b2b' and not user_row['is_approved']:
-            current_app.logger.warning(f"Tentative de connexion B2B non approuvé: {email}")
-            return jsonify({"success": False, "message": "Votre compte professionnel est en attente d'approbation."}), 403 # Forbidden or Unauthorized
-            
+
         try:
             token_payload = {
                 'user_id': user_data['id'],
                 'email': user_data['email'],
                 'is_admin': user_data['is_admin'],
-                'user_type': user_data['user_type'], # Add user_type to JWT
+                'user_type': user_data['user_type'],
                 'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=current_app.config.get('JWT_EXPIRATION_HOURS', 24))
             }
             token = jwt.encode(token_payload, current_app.config['SECRET_KEY'], algorithm='HS256')
 
             current_app.logger.info(f"Connexion réussie pour : {email} (Admin: {user_data['is_admin']}, Type: {user_data['user_type']})")
+            if db: db.close()
             return jsonify({
                 "success": True,
                 "message": "Connexion réussie !",
@@ -164,10 +209,61 @@ def login_user():
             }), 200
         except Exception as e:
             current_app.logger.error(f"Erreur génération JWT pour {email}: {e}", exc_info=True)
+            if db: db.close()
             return jsonify({"success": False, "message": "Erreur d'authentification interne."}), 500
     else:
         current_app.logger.warning(f"Tentative de connexion échouée pour : {email}")
+        if db: db.close()
         return jsonify({"success": False, "message": "E-mail ou mot de passe incorrect."}), 401
+
+# Decorator for routes requiring professional user (B2B)
+from functools import wraps
+def professional_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        token = None
+        auth_header = request.headers.get('Authorization')
+        if auth_header and auth_header.startswith('Bearer '):
+            token = auth_header.split(" ")[1]
+
+        if not token: return jsonify({"success": False, "message": "Token manquant."}), 401
+        try:
+            payload = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
+            g.current_user_id = payload.get('user_id')
+            g.user_type = payload.get('user_type') # Set user_type in g
+            if g.user_type != 'b2b': # Check if user_type is b2b
+                return jsonify({"success": False, "message": "Accès professionnel requis."}), 403
+            # Optionally, check if user is approved and active from DB if not in token
+            # For simplicity, token implies basic validity here. More checks can be added.
+        except jwt.ExpiredSignatureError:
+            return jsonify({"success": False, "message": "Token expiré."}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({"success": False, "message": "Token invalide."}), 401
+        return f(*args, **kwargs)
+    return decorated_function
+
+def admin_required(f):
+    @wraps(f)
+    def decorated_admin_function(*args, **kwargs):
+        token = None
+        auth_header = request.headers.get('Authorization')
+        if auth_header and auth_header.startswith('Bearer '):
+            token = auth_header.split(" ")[1]
+        if not token: return jsonify({"success": False, "message": "Token administrateur manquant."}), 401
+        try:
+            payload = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
+            g.current_user_id = payload.get('user_id') # Useful for logging who did what
+            g.is_admin = payload.get('is_admin', False)
+            if not g.is_admin:
+                return jsonify({"success": False, "message": "Accès administrateur requis."}), 403
+            g.admin_user_id = g.current_user_id # Specific for admin actions
+        except jwt.ExpiredSignatureError:
+            return jsonify({"success": False, "message": "Token administrateur expiré."}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({"success": False, "message": "Token administrateur invalide."}), 401
+        return f(*args, **kwargs)
+    return decorated_admin_function
+
 
 @auth_bp.route('/forgot-password', methods=['POST'])
 def forgot_password_route(): # Renamed to avoid conflict
@@ -255,50 +351,3 @@ def reset_password_route(): # Renamed to avoid conflict
         return jsonify({"success": False, "message": "Erreur serveur lors de la réinitialisation du mot de passe."}), 500
     finally:
         if db: db.close()
-
-
-# Decorator for routes requiring professional user (B2B)
-from functools import wraps
-def professional_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        token = None
-        auth_header = request.headers.get('Authorization')
-        if auth_header and auth_header.startswith('Bearer '):
-            token = auth_header.split(" ")[1]
-
-        if not token: return jsonify({"success": False, "message": "Token manquant."}), 401
-        try:
-            payload = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
-            g.current_user_id = payload.get('user_id')
-            g.user_type = payload.get('user_type')
-            if g.user_type != 'b2b':
-                return jsonify({"success": False, "message": "Accès professionnel requis."}), 403
-        except jwt.ExpiredSignatureError:
-            return jsonify({"success": False, "message": "Token expiré."}), 401
-        except jwt.InvalidTokenError:
-            return jsonify({"success": False, "message": "Token invalide."}), 401
-        return f(*args, **kwargs)
-    return decorated_function
-
-def admin_required(f):
-    @wraps(f)
-    def decorated_admin_function(*args, **kwargs):
-        token = None
-        auth_header = request.headers.get('Authorization')
-        if auth_header and auth_header.startswith('Bearer '):
-            token = auth_header.split(" ")[1]
-        if not token: return jsonify({"success": False, "message": "Token administrateur manquant."}), 401
-        try:
-            payload = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
-            g.current_user_id = payload.get('user_id') 
-            g.is_admin = payload.get('is_admin', False)
-            if not g.is_admin:
-                return jsonify({"success": False, "message": "Accès administrateur requis."}), 403
-            g.admin_user_id = g.current_user_id 
-        except jwt.ExpiredSignatureError:
-            return jsonify({"success": False, "message": "Token administrateur expiré."}), 401
-        except jwt.InvalidTokenError:
-            return jsonify({"success": False, "message": "Token administrateur invalide."}), 401
-        return f(*args, **kwargs)
-    return decorated_admin_function
