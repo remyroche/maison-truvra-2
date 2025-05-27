@@ -77,8 +77,8 @@ def register_professional_user():
         cursor = db.cursor()
         hashed_password = generate_password_hash(password)
         cursor.execute(
-            "INSERT INTO users (email, password_hash, nom, prenom, company_name, phone_number, is_admin, user_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (email, hashed_password, contact_nom, contact_prenom, company_name, phone_number, False, 'b2b') # user_type is 'b2b'
+            "INSERT INTO users (email, password_hash, nom, prenom, company_name, phone_number, is_admin, user_type, is_approved, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (email, hashed_password, contact_nom, contact_prenom, company_name, phone_number, False, 'b2b', False, 'pending_approval') # is_approved = False, status = 'pending_approval' for B2B
         )
         db.commit()
         user_id = cursor.lastrowid
@@ -92,7 +92,7 @@ def register_professional_user():
         # TODO: Potentially send admin notification for B2B registration approval
         return jsonify({
             "success": True,
-            "message": "Compte professionnel créé avec succès ! Un administrateur pourrait avoir besoin de valider votre compte. Vous pouvez essayer de vous connecter.",
+            "message": "Un administrateur doit valider votre compte.", # Updated text
             "user": user_info
         }), 201
     except sqlite3.IntegrityError:
