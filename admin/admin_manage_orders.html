@@ -148,17 +148,19 @@
         </main>
     </div>
     <div id="admin-toast-container"><div id="admin-message-toast"><p id="admin-message-text"></p></div></div>
-<script src="website/admin/admin_scripts.js"></script> ```
-with the following block, ensuring correct loading order:
-```html
-<script src="js/admin_config.js"></script>
-<script src="js/admin_ui.js"></script>
-<script src="js/admin_api.js"></script>
-<script src="js/admin_auth.js"></script>
-<script src="js/admin_dashboard.js"></script>
-<script src="js/admin_products.js"></script>
-<script src="js/admin_inventory.js"></script>
-<script src="js/admin_users.js"></script>
-<script src="js/admin_orders.js"></script>
-<script src="js/admin_main.js"></script></body>
+    
+    <script>
+        fetch('admin_sidebar.html')
+            .then(response => response.text())
+            .then(data => {
+                document.getElementById('admin-sidebar-placeholder').innerHTML = data;
+            });
+    </script>
+    <script src="../website/admin/js/admin_config.js"></script>
+    <script src="../website/admin/js/admin_ui.js"></script>
+    <script src="../website/admin/js/admin_api.js"></script>
+    <script src="../website/admin/js/admin_auth.js"></script>
+    <script src="../website/admin/js/admin_orders.js"></script>
+    <script src="../website/admin/js/admin_main.js"></script>
+</body>
 </html>
