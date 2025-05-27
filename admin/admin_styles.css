@@ -13,6 +13,18 @@
     --brand-truffle-burgundy: #8A3E3E;
 }
 
+module.exports = {
+  content: [
+    "./admin/**/*.html",
+    "./website/admin/**/*.html", // If JS for admin is also in HTML
+    "./website/admin/js/**/*.js",
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+}
+
 body.admin-body { /* Apply to body of admin pages if needed, or use Tailwind directly */
     font-family: 'Inter', sans-serif;
     background-color: var(--brand-cream);
