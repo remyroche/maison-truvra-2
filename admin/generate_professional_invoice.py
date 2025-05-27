@@ -5,9 +5,7 @@
 
 def generate_invoice_pdf(output_filename, client_data, invoice_data, items_data, company_info):
     # client_data = {"company_name": "Pro Client Inc.", "contact_person": "John Doe", "address": "..."}
-    # invoice_data = {"number": "FACT2025-001", "date": "2025-05-27", "due_date": "2025-06-26", "total_ht": 500.00, "total_ttc": 600.00, "discount_percent": 5}
-    # items_data = [{"name": "Truffe Noire Extra 50g", "quantity": 2, "unit_price_ht": 100.00, "total_ht": 200.00}, ...]
-    # company_info = {"name": "Maison Trüvra", "address": "...", "siret": "...", "vat_number": "..."# admin/generate_professional_invoice.py
+    # invoice_data = {"number": "FACT2025-001", "date": "2025-05-27", "due_date": "2025-06-26", "total_ht": 500.00, "total_ttc": 600.00, "d# admin/generate_professional_invoice.py
 import datetime
 import os
 from reportlab.pdfgen import canvas
@@ -195,7 +193,7 @@ def generate_invoice_pdf(output_filename, client_data, invoice_data, items_data)
         c.drawRightString(totals_x_value, current_y, f"-{invoice_data['discount_amount_ht']:.2f} €")
         current_y -= 0.6*cm
         
-        subtotal_after_discount = invoice_data['total_ht'] - invoice_data['discount_amount_ht']
+        subtotal_after_discount = invoice_data['total_ht_after_discount'] # Use calculated value
         c.setFont("Helvetica-Bold", 10)
         c.drawString(totals_x_label, current_y, "Sous-Total HT (après remise):")
         c.drawRightString(totals_x_value, current_y, f"{subtotal_after_discount:.2f} €")
@@ -243,10 +241,10 @@ def calculate_invoice_totals(items_data, discount_percent_str="0", vat_rate_perc
     total_ttc = total_ht_after_discount + vat_amount
 
     return {
-        "total_ht": total_ht_before_discount,
+        "total_ht_before_discount": total_ht_before_discount, # This is the sum of item totals before discount
         "discount_percent": discount_percent,
         "discount_amount_ht": discount_amount_ht,
-        "total_ht_after_discount": total_ht_after_discount,
+        "total_ht_after_discount": total_ht_after_discount, # This is the subtotal after discount
         "vat_rate_percent": vat_rate_percent,
         "vat_amount": vat_amount,
         "total_ttc": total_ttc
@@ -255,7 +253,7 @@ def calculate_invoice_totals(items_data, discount_percent_str="0", vat_rate_perc
 if __name__ == '__main__':
     print("--- Générateur de Facture Professionnelle Maison Trüvra ---")
     
-    output_dir = "generated_invoices_b2b" # Store B2B invoices in a specific folder
+    output_dir = "generated_invoices_b2b" # Store B2B invoices in a specific folder relative to script
     os.makedirs(output_dir, exist_ok=True)
     
     # --- Admin Inputs ---
@@ -300,7 +298,7 @@ if __name__ == '__main__':
                 "description": item_desc,
                 "quantity": item_qty,
                 "unit_price_ht": item_unit_price_ht,
-                "total_ht": item_qty * item_unit_price_ht
+                "total_ht": item_qty * item_unit_price_ht # Line item total HT
             })
         except ValueError:
             print("Quantité ou prix invalide. Veuillez entrer des nombres.")
@@ -323,7 +321,13 @@ if __name__ == '__main__':
         "number": invoice_number_input,
         "date": invoice_date_input,
         "due_date": due_date_input,
-        **calculated_totals 
+        "total_ht": calculated_totals['total_ht_before_discount'], # This is sum of line items before discount
+        "discount_percent": calculated_totals['discount_percent'],
+        "discount_amount_ht": calculated_totals['discount_amount_ht'],
+        "total_ht_after_discount": calculated_totals['total_ht_after_discount'], #This is the subtotal displayed
+        "vat_rate_percent": calculated_totals['vat_rate_percent'],
+        "vat_amount": calculated_totals['vat_amount'],
+        "total_ttc": calculated_totals['total_ttc']
     }
     
     pdf_filename = os.path.join(output_dir, f"Facture_{invoice_number_input.replace('/', '-')}.pdf")
