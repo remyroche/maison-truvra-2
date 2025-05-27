@@ -79,7 +79,42 @@
                             <button type="submit" class="btn-primary w-full py-3">Se connecter</button>
                         </div>
                     </form>
-        
+
+                    <form id="register-form" class="mb-10 mt-10 border-t pt-6" style="display:none;"> <h2 class="text-xl font-serif text-brand-near-black mb-5" data-translate-key="Creer_un_compte_bouton">Créer un compte</h2>
+                        <div id="register-message" class="text-sm text-brand-truffle-burgundy mb-4"></div>
+                        <div class="space-y-5">
+                            <div>
+                                <label for="register-prenom" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Prenom">Prénom</label>
+                                <input type="text" id="register-prenom" name="prenom" class="form-input-checkout" required>
+                            </div>
+                            <div>
+                                <label for="register-nom" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Nom">Nom</label>
+                                <input type="text" id="register-nom" name="nom" class="form-input-checkout" required>
+                            </div>
+                            <div>
+                                <label for="register-email" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Adresse_e-mail">Adresse e-mail</label>
+                                <input type="email" id="register-email" name="email" class="form-input-checkout" required>
+                            </div>
+                            <div>
+                                <label for="register-password" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Mot_de_passe">Mot de passe</label>
+                                <input type="password" id="register-password" name="password" class="form-input-checkout" required minlength="8">
+                            </div>
+                            <div>
+                                <label for="register-confirm-password" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Confirmer_mot_de_passe">Confirmer le mot de passe</label>
+                                <input type="password" id="register-confirm-password" name="confirm_password" class="form-input-checkout" required minlength="8">
+                            </div>
+                            <button type="submit" class="btn-primary w-full py-3" data-translate-key="Creer_un_compte_bouton">Créer un compte</button>
+                            <p class="text-center mt-4">
+                                <a href="#" id="show-login-link" class="text-sm text-brand-classic-gold hover:underline" data-translate-key="Deja_client_Connectez-vous">Déjà client ? Connectez-vous</a>
+                            </p>
+                        </div>
+                    </form>
+                    
+                    <div id="new-customer-section"> <h2 class="text-xl font-serif text-brand-near-black mb-4" data-translate-key="Nouveau_client">Nouveau client ?</h2>
+                        <p class="text-brand-earth-brown mb-5 text-sm" data-translate-key="Creer_un_compte_texte">Créez un compte pour suivre vos commandes, enregistrer vos informations et plus encore.</p>
+                        <button id="show-register-form-button" class="btn-secondary w-full py-3" data-translate-key="Creer_un_compte_bouton">Créer un compte</button>
+                    </div>
+                                        
                     <div>
                         <h2 class="text-xl font-serif text-brand-near-black mb-4">Nouveau client ?</h2>
                         <p class="text-brand-earth-brown mb-5 text-sm">Créez un compte pour suivre vos commandes, enregistrer vos informations et plus encore.</p>
