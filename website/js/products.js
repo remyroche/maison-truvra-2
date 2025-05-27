@@ -89,6 +89,54 @@ async function displayProductReviews(productId) {
                     <div class="border-b border-brand-cream pb-2">
                         <p class="font-semibold text-brand-near-black">${review.user_prenom || t('Utilisateur_anonyme')} - <span class="math-inline">\{new Date\(review\.review\_date\)\.toLocaleDateString\(getCurrentLang\(\) \|\| 'fr\-FR'\)\}</p\>
 
+                        <p class="text-yellow-500">{'★'.repeat(review.rating)}′☆′.repeat(5−review.rating)</p><pclass="text−smtext−brand−earth−brownmt−1">{review.comment_text || ''}</p>
+                        </div>
+                        ).join(''); } } else { reviewsListDiv.innerHTML =<p class="text-sm text-red-600">${t('Erreur_chargement_avis')}</p>; } } catch (error) { reviewsListDiv.innerHTML =<p class="text-sm text-red-600">${t('Erreur_chargement_avis')}</p>`;
+                        console.error("Error fetching reviews:", error);
+                        }
+                        }
+
+
+        function setupReviewForm(productId) {
+            const reviewForm = document.getElementById('submit-review-form');
+            const reviewLoginPrompt = document.getElementById('review-login-prompt');
+            const currentUser = getCurrentUser(); // From auth.js
+        
+            if (!reviewForm || !reviewLoginPrompt) return;
+        
+            if (currentUser) {
+                reviewForm.style.display = 'block';
+                reviewLoginPrompt.style.display = 'none';
+                reviewForm.onsubmit = async function(event) {
+                    event.preventDefault();
+                    const rating = document.getElementById('review-rating').value;
+                    const comment_text = document.getElementById('review-comment').value;
+                    const messageDiv = document.getElementById('review-form-message');
+                    messageDiv.textContent = '';
+        
+                    try {
+                        const result = await makeApiRequest(`/products/${productId}/reviews`, 'POST', { rating, comment_text }, true);
+                        if (result.success) {
+                            showGlobalMessage(result.message || t('Avis_soumis_succes'), 'success');
+                            reviewForm.reset();
+                            displayProductReviews(productId); // Refresh reviews
+                        } else {
+                            messageDiv.textContent = result.message || t('Erreur_soumission_avis');
+                            messageDiv.className = 'text-sm mt-2 text-red-600';
+                        }
+                    } catch (error) {
+                        messageDiv.textContent = t('Erreur_serveur');
+                        messageDiv.className = 'text-sm mt-2 text-red-600';
+                    }
+                };
+            } else {
+                reviewForm.style.display = 'none';
+                reviewLoginPrompt.style.display = 'block';
+            }
+        }
+
+
+        
 function setupCategoryFilters() {
     const filterContainer = document.getElementById('product-categories-filter');
     if (filterContainer) {
