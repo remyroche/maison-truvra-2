@@ -4,109 +4,166 @@
 document.addEventListener('DOMContentLoaded', () => {
     console.log("Admin Auth JS Loaded");
 
+    const loginForm = document.getElementById('admin-login-form');// website/admin/js/admin_auth.js
+// Handles admin login authentication.
+// Assumes adminApi.js (adminApi.adminLogin, AdminApiError) is loaded.
+// Assumes ui.js (showGlobalMessage, showButtonLoading, hideButtonLoading) is loaded.
+// Assumes i18n.js (t function) is available for translated messages.
+
+document.addEventListener('DOMContentLoaded', () => {
+    console.log("Admin Auth JS Loaded");
+
     const loginForm = document.getElementById('admin-login-form');
     const emailInput = document.getElementById('admin-email');
     const passwordInput = document.getElementById('admin-password');
-    const messageElement = document.getElementById('admin-login-message');
+    // Message element for inline feedback within the form area
+    const loginMessageTargetId = 'admin-login-message'; // Ensure an element with this ID exists
 
-    // Ensure API_ADMIN_BASE_URL is available (expected from config.js or admin_config.js)
-    // If not, provide a fallback or throw an error.
-    // For admin pages, it's likely ADMIN_API_BASE_URL from js/admin_config.js if it exists,
-    // or API_BASE_URL from ../js/config.js
-    const ADMIN_AUTH_API_URL = (window.ADMIN_API_BASE_URL || window.API_BASE_URL || '/api') + '/auth/login';
-
-
-    // Function to show toast messages (can be moved to a global admin_ui.js if used across multiple admin pages)
-    // For now, keeping it here as it was part of the original login page script.
-    // If admin_ui.js and its showAdminToast is loaded before this, this can be removed.
-    if (!window.showAdminToast) {
-        console.warn("showAdminToast not found globally, using local version for admin_auth.js.");
-        window.showAdminToast = function(message, type = 'info', duration = 3000) {
-            const toast = document.getElementById('admin-message-toast'); // Assumes this element exists on the page
-            const textElement = document.getElementById('admin-message-text'); // Assumes this element exists
-            if (!toast || !textElement) {
-                // Fallback to simple alert if toast elements are not on the page
-                alert(`${type.toUpperCase()}: ${message}`);
-                return;
+    // Helper function for translation, with a fallback
+    const translate = typeof t === 'function' ? t : (key, params) => {
+        let str = key;
+        if (params) {
+            for (const pKey in params) {
+                str = str.replace(new RegExp(`{${pKey}}`, 'g'), params[pKey]);
             }
-            textElement.textContent = message;
-            toast.className = ''; // Reset classes
-            toast.classList.add(type); // Add type class for styling (e.g., 'success', 'error')
-            toast.style.display = 'block';
-            setTimeout(() => {
-                toast.style.display = 'none';
-            }, duration);
+        }
+        return str;
+    };
+
+    // Function to store admin auth data
+    function storeAdminAuth(token, user) {
+        sessionStorage.setItem('adminAuthToken', token);
+        sessionStorage.setItem('adminUser', JSON.stringify(user));
+        // localStorage can be used for more persistent login, but sessionStorage is often preferred for admin panels.
+    }
+    
+    // Function to get admin auth token (consistent with admin_api.js expectation)
+    if (typeof getAdminAuthToken === 'undefined') {
+        window.getAdminAuthToken = function() {
+            return sessionStorage.getItem('adminAuthToken');
+        };
+    }
+    // Function to clear admin auth token
+     if (typeof clearAdminAuthToken === 'undefined') {
+        window.clearAdminAuthToken = function() {
+            sessionStorage.removeItem('adminAuthToken');
+            sessionStorage.removeItem('adminUser');
         };
     }
 
 
     if (loginForm) {
+        const submitButton = loginForm.querySelector('button[type="submit"]');
+
         loginForm.addEventListener('submit', async function(event) {
             event.preventDefault();
             const email = emailInput.value.trim();
             const password = passwordInput.value.trim();
             
-            if(messageElement) messageElement.textContent = ''; // Clear previous messages
+            // Clear previous inline messages
+            const messageElement = document.getElementById(loginMessageTargetId);
+            if(messageElement) messageElement.textContent = '';
+
 
             if (!email || !password) {
-                if(messageElement) messageElement.textContent = 'Veuillez remplir tous les champs.';
+                if (typeof showGlobalMessage === 'function') {
+                    showGlobalMessage({ 
+                        message: translate('admin.auth.fillAllFields'), 
+                        type: 'error',
+                        targetElementId: loginMessageTargetId // Show inline if element exists
+                    });
+                } else {
+                    if(messageElement) messageElement.textContent = 'Veuillez remplir tous les champs.';
+                }
                 return;
             }
 
-            try {
-                const response = await fetch(ADMIN_AUTH_API_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, password })
-                });
-                const result = await response.json();
+            if (submitButton && typeof showButtonLoading === 'function') {
+                showButtonLoading(submitButton, translate('admin.auth.loggingIn'));
+            }
 
-                if (response.ok && result.success && result.user && result.user.is_admin) {
-                    // Store token and user info (use sessionStorage for session-only, localStorage for persistence)
-                    sessionStorage.setItem('adminAuthToken', result.token);
-                    sessionStorage.setItem('adminUser', JSON.stringify(result.user));
+            try {
+                // adminApi.adminLogin should be available from admin_api.js
+                const result = await adminApi.adminLogin(email, password);
+
+                if (result.success !== false && result.token && result.user && result.user.is_admin) { // Check for explicit success false
+                    storeAdminAuth(result.token, result.user);
                     
-                    window.showAdminToast('Connexion réussie. Redirection...', 'success');
-                    // Redirect to the admin dashboard (ensure this path is correct)
+                    if (typeof showGlobalMessage === 'function') {
+                        showGlobalMessage({ message: translate('admin.auth.loginSuccessRedirecting'), type: 'success' });
+                    }
+                    // Redirect to the admin dashboard
                     window.location.href = 'admin_dashboard.html'; 
-                } else if (response.ok && result.success && result.user && !result.user.is_admin) {
-                    if(messageElement) messageElement.textContent = 'Accès refusé. Ce compte n\'est pas un administrateur.';
-                    window.showAdminToast('Accès administrateur requis.', 'error');
+                } else if (result.user && !result.user.is_admin) {
+                    const accessDeniedMsg = translate('admin.auth.accessDeniedNotAdmin');
+                     if (typeof showGlobalMessage === 'function') {
+                        showGlobalMessage({ message: accessDeniedMsg, type: 'error', targetElementId: loginMessageTargetId });
+                    } else if (messageElement) {
+                        messageElement.textContent = accessDeniedMsg;
+                    }
                 } else {
-                    if(messageElement) messageElement.textContent = result.message || 'E-mail ou mot de passe incorrect.';
-                    window.showAdminToast(result.message || 'Échec de la connexion.', 'error');
+                    // Use message from API if available, otherwise a generic one
+                    const loginFailedMsg = result.message || translate('admin.auth.loginFailedIncorrectCredentials');
+                     if (typeof showGlobalMessage === 'function') {
+                        showGlobalMessage({ message: loginFailedMsg, type: 'error', targetElementId: loginMessageTargetId });
+                    } else if (messageElement) {
+                        messageElement.textContent = loginFailedMsg;
+                    }
                 }
             } catch (error) {
-                console.error('Erreur de connexion admin:', error);
-                if(messageElement) messageElement.textContent = 'Erreur de communication avec le serveur.';
-                window.showAdminToast('Erreur de connexion.', 'error');
+                console.error('Admin login error:', error);
+                let errorMessage = translate('admin.auth.loginErrorServerCommunication');
+                if (error instanceof AdminApiError) { // Custom error from adminApi
+                    errorMessage = error.message; // This message would have already been shown globally by adminApi if not auth related
+                }
+                // Show error message inline
+                if (typeof showGlobalMessage === 'function') {
+                    showGlobalMessage({ message: errorMessage, type: 'error', targetElementId: loginMessageTargetId });
+                } else if (messageElement) {
+                     messageElement.textContent = errorMessage;
+                }
+            } finally {
+                if (submitButton && typeof hideButtonLoading === 'function') {
+                    hideButtonLoading(submitButton);
+                }
             }
         });
     }
 
-    // Optional: Redirect if already logged in as admin
-    // This check should ideally be in admin_main.js or a script that runs on all protected admin pages.
-    // If placing it here, ensure it doesn't cause redirect loops if already on the login page.
-    const currentPath = window.location.pathname.split('/').pop();
-    if (currentPath === 'admin_login.html') { // Only run redirect check if on login page
-        const token = sessionStorage.getItem('adminAuthToken');
-        const adminUserString = sessionStorage.getItem('adminUser');
-        if (token && adminUserString) {
-            try {
-                const adminUser = JSON.parse(adminUserString);
-                if (adminUser && adminUser.is_admin) {
-                    console.log("Admin already logged in, redirecting to dashboard from login page.");
-                    // No, do not redirect from login page itself if already logged in, user might want to log in as different admin.
-                    // The check for authentication should happen on protected pages, redirecting TO login if not auth.
-                    // For now, we'll leave this commented out or remove it, as admin_main.js should handle protection.
-                    // window.location.href = 'admin_dashboard.html'; 
-                }
-            } catch (e) {
-                console.error("Error parsing admin user from sessionStorage", e);
-                sessionStorage.removeItem('adminAuthToken');
-                sessionStorage.removeItem('adminUser');
+    // Redirection check: If already logged in as admin and NOT on the login page, redirect to dashboard.
+    // This should ideally be in a central script like admin_main.js that runs on all admin pages.
+    // For admin_login.html itself, we don't auto-redirect away if already logged in,
+    // as the user might want to log in as a different admin.
+    // The protection for other admin pages (redirecting TO login if not authenticated) is more critical.
+    
+    // Example of how admin_main.js might protect pages:
+    /*
+    if (typeof ensureAdminAuthenticated === 'undefined' && !window.location.pathname.endsWith('admin_login.html')) {
+        window.ensureAdminAuthenticated = function() {
+            const token = getAdminAuthToken();
+            const adminUserString = sessionStorage.getItem('adminUser');
+            let isAdmin = false;
+            if (adminUserString) {
+                try {
+                    const adminUser = JSON.parse(adminUserString);
+                    isAdmin = adminUser && adminUser.is_admin;
+                } catch (e) { console.error("Error parsing admin user from session."); }
             }
-        }
+
+            if (!token || !isAdmin) {
+                console.log("Admin not authenticated or not an admin, redirecting to login.");
+                clearAdminAuthToken(); // Clear any partial/invalid auth data
+                window.location.href = 'admin_login.html?redirect=' + encodeURIComponent(window.location.pathname + window.location.search);
+                return false; // Indicate not authenticated
+            }
+            return true; // Authenticated
+        };
+        // Call it on page load for protected pages
+        // if (!ensureAdminAuthenticated()) {
+        //   // Potentially stop further script execution if redirecting
+        // }
     }
+    */
+
     console.log("Admin Auth JS Initialized for login page.");
 });
