@@ -2,352 +2,313 @@
 from flask import Blueprint, request, jsonify, current_app, g
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
-import datetime# backend/auth/routes.py
-from flask import Blueprint, request, jsonify, current_app, g
-from werkzeug.security import generate_password_hash, check_password_hash
-import jwt
-import datetime
-import sqlite3
-import uuid # For mock token generation
-from ..database import get_db
-from ..utils import is_valid_email # Assuming is_valid_email from backend/utils.py
-# Assuming send_email_alert is in backend/utils.py and configured
-from ..utils import send_email_alert
+from datetime import datetime, timedelta, timezone
+from functools import wraps
+from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadTimeSignature
 
 
-auth_bp = Blueprint('auth_bp', __name__, url_prefix='/api/auth')
+from ..database import db, User
+from ..utils import is_valid_email # Assuming utils.py is in the same directory level or adjust import
 
-@auth_bp.route('/register', methods=['POST']) # This is for B2C users
-def register_user():
+auth_bp = Blueprint('auth', __name__)
+
+# --- Decorators ---
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        if 'Authorization' in request.headers and request.headers['Authorization'].startswith('Bearer '):
+            token = request.headers['Authorization'].split(" ")[1]
+        
+        if not token:
+            return jsonify({'success': False, 'message': 'Token is missing!'}), 401
+        
+        try:
+            # g.current_user_id, g.user_type, g.is_admin should be set by before_request_func in __init__.py
+            if not g.get('current_user_id'): # Check if user was actually loaded from token
+                 # This case might happen if before_request_func failed silently or token was invalid but not caught there
+                payload = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
+                g.current_user_id = payload.get('user_id')
+                g.user_type = payload.get('user_type')
+                g.is_admin = payload.get('is_admin', False)
+
+            if not g.current_user_id: # Still no user_id
+                 return jsonify({'success': False, 'message': 'Invalid token or user not found.'}), 401
+
+        except jwt.ExpiredSignatureError:
+            return jsonify({'success': False, 'message': 'Token has expired!'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'success': False, 'message': 'Token is invalid!'}), 401
+        except Exception as e:
+            current_app.logger.error(f"Error in token_required decorator: {e}", exc_info=True)
+            return jsonify({'success': False, 'message': 'Token processing error.'}), 401
+            
+        return f(*args, **kwargs)
+    return decorated
+
+def admin_required(f):
+    @wraps(f)
+    @token_required # Ensures token is valid and g.is_admin is populated
+    def decorated(*args, **kwargs):
+        if not g.get('is_admin'):
+            return jsonify({'success': False, 'message': 'Admin access required.'}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+def professional_required(f):
+    @wraps(f)
+    @token_required # Ensures token is valid and g.user_type is populated
+    def decorated(*args, **kwargs):
+        if g.get('user_type') != 'professional':
+            return jsonify({'success': False, 'message': 'Professional account access required.'}), 403
+        
+        user = User.query.get(g.current_user_id) # Check approval status from DB directly
+        if not user or not user.is_approved or user.status != 'active':
+             return jsonify({'success': False, 'message': 'Professional account not approved or inactive.'}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
+# --- Routes ---
+@auth_bp.route('/register', methods=['POST'])
+def register_b2c():
     data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'message': 'No data provided.'}), 400
+
     email = data.get('email')
     password = data.get('password')
-    nom = data.get('nom', '')
-    prenom = data.get('prenom', '')
+    first_name = data.get('first_name')
+    last_name = data.get('last_name')
 
-    if not email or not is_valid_email(email):
-        return jsonify({"success": False, "message": "Veuillez fournir une adresse e-mail valide."}), 400
-    if not password or len(password) < 8:
-        return jsonify({"success": False, "message": "Le mot de passe doit contenir au moins 8 caractères."}), 400
+    if not all([email, password, first_name, last_name]):
+        return jsonify({'success': False, 'message': 'Missing required fields.'}), 400
 
-    db = None
+    if not is_valid_email(email):
+        return jsonify({'success': False, 'message': 'Invalid email format.'}), 400
+    
+    if len(password) < 8: # Basic password length check
+        return jsonify({'success': False, 'message': 'Password must be at least 8 characters long.'}), 400
+
+    if User.query.filter_by(email=email).first():
+        return jsonify({'success': False, 'message': 'Email already registered.'}), 409
+
+    hashed_password = generate_password_hash(password)
+    new_user = User(
+        email=email, 
+        password_hash=hashed_password, 
+        first_name=first_name, 
+        last_name=last_name,
+        user_type='b2c', # Default B2C user
+        is_approved=True, # B2C users are auto-approved
+        status='active'
+    )
     try:
-        db = get_db()
-        cursor = db.cursor()
-        hashed_password = generate_password_hash(password)
-        # For B2C, is_approved is TRUE and status is 'active' by default
-        cursor.execute(
-            "INSERT INTO users (email, password_hash, nom, prenom, is_admin, user_type, is_approved, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (email, hashed_password, nom, prenom, False, 'b2c', True, 'active')
-        )
-        db.commit()
-        user_id = cursor.lastrowid
-        user_info = {"id": user_id, "email": email, "nom": nom, "prenom": prenom, "is_admin": False, "user_type": "b2c", "is_approved": True, "status": "active"}
-        current_app.logger.info(f"Utilisateur B2C enregistré : {email}")
-        return jsonify({
-            "success": True,
-            "message": "Compte créé avec succès ! Vous pouvez maintenant vous connecter.",
-            "user": user_info
-        }), 201
-    except sqlite3.IntegrityError:
-        if db: db.rollback()
-        return jsonify({"success": False, "message": "Un compte existe déjà avec cette adresse e-mail."}), 409
+        db.session.add(new_user)
+        db.session.commit()
+        # TODO: Send welcome email
+        return jsonify({'success': True, 'message': 'B2C user registered successfully.'}), 201
     except Exception as e:
-        if db: db.rollback()
-        current_app.logger.error(f"Erreur d'inscription B2C pour {email}: {e}", exc_info=True)
-        return jsonify({"success": False, "message": "Erreur interne lors de l'inscription."}), 500
-    finally:
-        if db: db.close()
+        db.session.rollback()
+        current_app.logger.error(f"Error registering B2C user: {e}", exc_info=True)
+        return jsonify({'success': False, 'message': f'Database error: {e}'}), 500
 
 
-@auth_bp.route('/register-professional', methods=['POST']) # NEW endpoint for B2B
-def register_professional_user():
+@auth_bp.route('/register-professional', methods=['POST'])
+def register_professional():
     data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'message': 'No data provided.'}), 400
+
     email = data.get('email')
     password = data.get('password')
     company_name = data.get('company_name')
-    contact_nom = data.get('nom') # nom of the contact person
-    contact_prenom = data.get('prenom') # prenom of the contact person
-    phone_number = data.get('phone_number', None)
+    vat_number = data.get('vat_number') # Optional, but good for B2B
+    # Add other B2B specific fields: address, phone, etc.
 
-    if not email or not is_valid_email(email):
-        return jsonify({"success": False, "message": "Veuillez fournir une adresse e-mail valide."}), 400
-    if not password or len(password) < 8:
-        return jsonify({"success": False, "message": "Le mot de passe doit contenir au moins 8 caractères."}), 400
-    if not company_name or not company_name.strip():
-        return jsonify({"success": False, "message": "Le nom de l'entreprise est requis."}), 400
-    if not contact_nom or not contact_prenom:
-        return jsonify({"success": False, "message": "Nom et prénom du contact requis."}), 400
+    if not all([email, password, company_name]): # Basic check
+        return jsonify({'success': False, 'message': 'Missing required fields: email, password, company_name.'}), 400
 
-    db = None
+    if not is_valid_email(email):
+        return jsonify({'success': False, 'message': 'Invalid email format.'}), 400
+    
+    if len(password) < 8:
+        return jsonify({'success': False, 'message': 'Password must be at least 8 characters long.'}), 400
+
+    if User.query.filter_by(email=email).first():
+        return jsonify({'success': False, 'message': 'Email already registered.'}), 409
+    
+    if vat_number and User.query.filter_by(vat_number=vat_number).first(): # Check for unique VAT if provided and required to be unique
+        return jsonify({'success': False, 'message': 'VAT number already registered.'}), 409
+
+
+    hashed_password = generate_password_hash(password)
+    new_user = User(
+        email=email,
+        password_hash=hashed_password,
+        company_name=company_name,
+        vat_number=vat_number,
+        user_type='professional',
+        is_approved=False, # Professionals require admin approval
+        status='pending_approval'
+        # Populate other fields from data
+    )
     try:
-        db = get_db()
-        cursor = db.cursor()
-        hashed_password = generate_password_hash(password)
-        cursor.execute(
-            "INSERT INTO users (email, password_hash, nom, prenom, company_name, phone_number, is_admin, user_type, is_approved, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (email, hashed_password, contact_nom, contact_prenom, company_name, phone_number, False, 'b2b', False, 'pending_approval')
-        )
-        db.commit()
-        user_id = cursor.lastrowid
-        user_info = {
-            "id": user_id, "email": email,
-            "nom": contact_nom, "prenom": contact_prenom,
-            "company_name": company_name, "phone_number": phone_number,
-            "is_admin": False, "user_type": "b2b", "is_approved": False, "status": "pending_approval"
-        }
-        current_app.logger.info(f"Utilisateur B2B (professionnel) enregistré : {email} pour {company_name}. En attente d'approbation.")
-        
-        # Mock sending email to admin for approval
-        admin_email_recipient = current_app.config.get('ADMIN_ALERT_EMAIL', current_app.config.get('ADMIN_EMAIL'))
-        if admin_email_recipient:
-            email_subject = "Nouvelle demande d'inscription professionnelle Maison Trüvra"
-            email_body = (
-                f"Une nouvelle demande de compte professionnel a été soumise :\n\n"
-                f"Email: {email}\n"
-                f"Entreprise: {company_name}\n"
-                f"Contact: {contact_prenom} {contact_nom}\n"
-                f"Téléphone: {phone_number or 'Non fourni'}\n\n"
-                f"Veuillez examiner cette demande dans le panneau d'administration."
-            )
-            # This uses the send_email_alert from backend/utils.py
-            # Ensure MAIL_SERVER, MAIL_USERNAME, etc. are configured in config.py for real emails.
-            # For now, it will log if not configured, which serves as a mock.
-            email_sent = send_email_alert(email_subject, email_body, recipient_email=admin_email_recipient)
-            if email_sent:
-                current_app.logger.info(f"Alerte email (simulée ou réelle) envoyée à {admin_email_recipient} pour la nouvelle inscription B2B de {email}.")
-            else:
-                current_app.logger.warning(f"Échec de l'envoi de l'alerte email pour la nouvelle inscription B2B de {email}. Vérifiez la configuration MAIL.")
-        else:
-            current_app.logger.warning("ADMIN_ALERT_EMAIL non configuré. Impossible d'envoyer une alerte pour la nouvelle inscription B2B.")
-
-        return jsonify({
-            "success": True,
-            # This message is directly used. If you want i18n, pass a key.
-            "message": "Un administrateur doit valider votre compte.",
-            "user": user_info
-        }), 201
-    except sqlite3.IntegrityError:
-        if db: db.rollback()
-        return jsonify({"success": False, "message": "Un compte existe déjà avec cette adresse e-mail."}), 409
+        db.session.add(new_user)
+        db.session.commit()
+        # TODO: Send email to admin for approval & to user about pending approval
+        return jsonify({'success': True, 'message': 'Professional registration submitted. Awaiting admin approval.'}), 201
     except Exception as e:
-        if db: db.rollback()
-        current_app.logger.error(f"Erreur d'inscription B2B pour {email}: {e}", exc_info=True)
-        return jsonify({"success": False, "message": "Erreur interne lors de l'inscription professionnelle."}), 500
-    finally:
-        if db: db.close()
+        db.session.rollback()
+        current_app.logger.error(f"Error registering professional user: {e}", exc_info=True)
+        return jsonify({'success': False, 'message': f'Database error: {e}'}), 500
 
 
 @auth_bp.route('/login', methods=['POST'])
-def login_user():
+def login():
     data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'message': 'No data provided.'}), 400
+
     email = data.get('email')
     password = data.get('password')
 
     if not email or not password:
-        return jsonify({"success": False, "message": "E-mail et mot de passe requis."}), 400
+        return jsonify({'success': False, 'message': 'Email and password are required.'}), 400
 
-    db = None
-    try:
-        db = get_db()
-        cursor = db.cursor()
-        cursor.execute("SELECT id, email, password_hash, nom, prenom, is_admin, user_type, company_name, phone_number, is_approved, status FROM users WHERE email = ?", (email,))
-        user_row = cursor.fetchone()
-    except Exception as e:
-        current_app.logger.error(f"Erreur DB lors de la connexion pour {email}: {e}", exc_info=True)
-        if db: db.close() # Ensure db is closed on error before returning
-        return jsonify({"success": False, "message": "Erreur de base de données."}), 500
-    # finally: # Moved db.close() to be inside try and after successful operations or specific error handling
-        # if db: db.close() # This would close before returning from success path
+    user = User.query.filter_by(email=email).first()
 
-    if user_row and check_password_hash(user_row['password_hash'], password):
-        if user_row['user_type'] == 'b2b' and not user_row['is_approved']:
-            current_app.logger.warning(f"Tentative de connexion B2B non approuvé: {email}")
-            if db: db.close()
-            return jsonify({"success": False, "message": "Votre compte professionnel est en attente d'approbation."}), 403
+    if not user or not check_password_hash(user.password_hash, password):
+        return jsonify({'success': False, 'message': 'Invalid email or password.'}), 401
 
-        if user_row['status'] != 'active':
-            current_app.logger.warning(f"Tentative de connexion pour compte non actif: {email}, statut: {user_row['status']}")
-            # Provide a more generic message for security unless status is 'pending_approval'
-            message = "Votre compte n'est pas actif. Veuillez contacter le support."
-            if user_row['status'] == 'pending_approval':
-                message = "Votre compte est en attente d'approbation."
-            if db: db.close()
-            return jsonify({"success": False, "message": message}), 403
+    if user.status == 'inactive' or user.status == 'suspended' or user.status == 'rejected':
+        return jsonify({'success': False, 'message': f'Account is {user.status}. Please contact support.'}), 403
+    
+    if user.user_type == 'professional' and (not user.is_approved or user.status == 'pending_approval'):
+        return jsonify({'success': False, 'message': 'Professional account not yet approved or pending approval.'}), 403
+    
+    # Determine token expiration based on user type
+    if user.user_type == 'admin': # Assuming admin users have user_type 'admin'
+        expires_delta = timedelta(seconds=current_app.config['JWT_ACCESS_TOKEN_EXPIRES_ADMIN'])
+    elif user.user_type == 'professional':
+        expires_delta = timedelta(seconds=current_app.config['JWT_ACCESS_TOKEN_EXPIRES_PROFESSIONAL'])
+    else: # b2c and others
+        expires_delta = timedelta(seconds=current_app.config['JWT_ACCESS_TOKEN_EXPIRES_DEFAULT'])
+        
+    token_payload = {
+        'user_id': user.id,
+        'email': user.email,
+        'user_type': user.user_type,
+        'is_admin': user.user_type == 'admin', # Set is_admin flag in token if user_type is 'admin'
+        'exp': datetime.now(timezone.utc) + expires_delta
+    }
+    token = jwt.encode(token_payload, current_app.config['SECRET_KEY'], algorithm="HS256")
 
-
-        user_data = {
-            "id": user_row['id'],
-            "email": user_row['email'],
-            "nom": user_row['nom'],
-            "prenom": user_row['prenom'],
-            "is_admin": bool(user_row['is_admin']),
-            "user_type": user_row['user_type'],
-            "company_name": user_row['company_name'],
-            "phone_number": user_row['phone_number'],
-            "is_approved": bool(user_row['is_approved']),
-            "status": user_row['status']
-        }
-
-        try:
-            token_payload = {
-                'user_id': user_data['id'],
-                'email': user_data['email'],
-                'is_admin': user_data['is_admin'],
-                'user_type': user_data['user_type'],
-                'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=current_app.config.get('JWT_EXPIRATION_HOURS', 24))
-            }
-            token = jwt.encode(token_payload, current_app.config['SECRET_KEY'], algorithm='HS256')
-
-            current_app.logger.info(f"Connexion réussie pour : {email} (Admin: {user_data['is_admin']}, Type: {user_data['user_type']})")
-            if db: db.close()
-            return jsonify({
-                "success": True,
-                "message": "Connexion réussie !",
-                "user": user_data,
-                "token": token
-            }), 200
-        except Exception as e:
-            current_app.logger.error(f"Erreur génération JWT pour {email}: {e}", exc_info=True)
-            if db: db.close()
-            return jsonify({"success": False, "message": "Erreur d'authentification interne."}), 500
-    else:
-        current_app.logger.warning(f"Tentative de connexion échouée pour : {email}")
-        if db: db.close()
-        return jsonify({"success": False, "message": "E-mail ou mot de passe incorrect."}), 401
-
-# Decorator for routes requiring professional user (B2B)
-from functools import wraps
-def professional_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        token = None
-        auth_header = request.headers.get('Authorization')
-        if auth_header and auth_header.startswith('Bearer '):
-            token = auth_header.split(" ")[1]
-
-        if not token: return jsonify({"success": False, "message": "Token manquant."}), 401
-        try:
-            payload = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
-            g.current_user_id = payload.get('user_id')
-            g.user_type = payload.get('user_type') # Set user_type in g
-            if g.user_type != 'b2b': # Check if user_type is b2b
-                return jsonify({"success": False, "message": "Accès professionnel requis."}), 403
-            # Optionally, check if user is approved and active from DB if not in token
-            # For simplicity, token implies basic validity here. More checks can be added.
-        except jwt.ExpiredSignatureError:
-            return jsonify({"success": False, "message": "Token expiré."}), 401
-        except jwt.InvalidTokenError:
-            return jsonify({"success": False, "message": "Token invalide."}), 401
-        return f(*args, **kwargs)
-    return decorated_function
-
-def admin_required(f):
-    @wraps(f)
-    def decorated_admin_function(*args, **kwargs):
-        token = None
-        auth_header = request.headers.get('Authorization')
-        if auth_header and auth_header.startswith('Bearer '):
-            token = auth_header.split(" ")[1]
-        if not token: return jsonify({"success": False, "message": "Token administrateur manquant."}), 401
-        try:
-            payload = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
-            g.current_user_id = payload.get('user_id') # Useful for logging who did what
-            g.is_admin = payload.get('is_admin', False)
-            if not g.is_admin:
-                return jsonify({"success": False, "message": "Accès administrateur requis."}), 403
-            g.admin_user_id = g.current_user_id # Specific for admin actions
-        except jwt.ExpiredSignatureError:
-            return jsonify({"success": False, "message": "Token administrateur expiré."}), 401
-        except jwt.InvalidTokenError:
-            return jsonify({"success": False, "message": "Token administrateur invalide."}), 401
-        return f(*args, **kwargs)
-    return decorated_admin_function
+    return jsonify({
+        'success': True, 
+        'message': 'Login successful.', 
+        'token': token,
+        'user': user.to_dict() # Send non-sensitive user data
+    }), 200
 
 
 @auth_bp.route('/forgot-password', methods=['POST'])
-def forgot_password_route(): # Renamed to avoid conflict
+def forgot_password_route():
     data = request.get_json()
     email = data.get('email')
 
-    if not email or not is_valid_email(email):
-        return jsonify({"success": False, "message": "Veuillez fournir une adresse e-mail valide."}), 400
+    if not email:
+        return jsonify({'success': False, 'message': 'Email is required.'}), 400
 
-    db = None
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        # Still return success to prevent email enumeration, but log it
+        current_app.logger.info(f"Password reset requested for non-existent email: {email}")
+        return jsonify({'success': True, 'message': 'If your email is registered, you will receive a password reset link.'})
+
     try:
-        db = get_db()
-        cursor = db.cursor()
-        cursor.execute("SELECT id, user_type FROM users WHERE email = ?", (email,))
-        user = cursor.fetchone()
+        s = URLSafeTimedSerializer(current_app.config['SECRET_KEY'], salt=current_app.config['PASSWORD_RESET_SALT'])
+        reset_token = s.dumps({'user_id': user.id, 'email': user.email})
+        
+        # TODO: Implement actual email sending logic here
+        # reset_url = url_for('auth.reset_password_route', token=reset_token, _external=True) # If reset page is part of this app
+        reset_url = f"{current_app.config.get('FRONTEND_URL', 'http://localhost:8080')}/reset-password?token={reset_token}" # Adjust to your frontend URL
+        
+        mail_subject = "Password Reset Request - Maison Trüvra"
+        mail_body = f"""
+        <p>Hello {user.first_name or user.company_name or user.email},</p>
+        <p>You requested a password reset. Click the link below to reset your password:</p>
+        <p><a href="{reset_url}">{reset_url}</a></p>
+        <p>This link is valid for 1 hour.</p>
+        <p>If you did not request this, please ignore this email.</p>
+        <p>Thanks,<br>The Maison Trüvra Team</p>
+        """
+        # from ..utils import send_email # Assuming you have an email utility
+        # send_email(to_email=user.email, subject=mail_subject, body_html=mail_body)
+        current_app.logger.info(f"Password reset token generated for {email}. Reset URL (for dev): {reset_url}")
+        # For now, just log it:
+        print(f"DEBUG: Password Reset URL for {user.email}: {reset_url}")
 
-        if user:
-            user_id = user['id']
-            # In a real app: Generate a secure, time-limited token, store it (or hash), and email the link.
-            # For this mock, we'll just log it.
-            mock_reset_token = str(uuid.uuid4()) # Generate a mock token
-            
-            # Construct the reset URL based on frontend structure
-            # Example: http://127.0.0.1:5500/website/reset-password.html?token=YOUR_TOKEN&email=USER_EMAIL
-            base_url = current_app.config.get('SITE_BASE_URL', 'http://127.0.0.1:5500/website')
-            reset_url = f"{base_url.rstrip('/')}/reset-password.html?token={mock_reset_token}&email={email}"
-            
-            current_app.logger.info(f"Demande de réinitialisation de mot de passe pour {email} (User ID: {user_id}).")
-            current_app.logger.info(f"MOCK EMAIL: Lien de réinitialisation (normalement envoyé par email): {reset_url}")
-            # Here you would call a function to send an actual email:
-            # send_password_reset_email(email, reset_url)
 
-        # IMPORTANT: Always return a generic success message to prevent email enumeration attacks
-        return jsonify({"success": True, "message": "Si un compte existe pour cet e-mail, un lien de réinitialisation des instructions a été envoyé."}), 200
+        return jsonify({'success': True, 'message': 'If your email is registered, you will receive a password reset link.'})
     except Exception as e:
-        current_app.logger.error(f"Erreur 'mot de passe oublié' pour {email}: {e}", exc_info=True)
-        # Still return a generic message to the client for security
-        return jsonify({"success": True, "message": "Si un compte existe pour cet e-mail, des instructions de réinitialisation ont été envoyées."}), 200
-    finally:
-        if db: db.close()
+        current_app.logger.error(f"Error in forgot password for {email}: {e}", exc_info=True)
+        return jsonify({'success': False, 'message': 'Error processing password reset request.'}), 500
 
-@auth_bp.route('/reset-password', methods=['POST'])
-def reset_password_route(): # Renamed to avoid conflict
+
+@auth_bp.route('/reset-password/<token>', methods=['POST']) # Or just /reset-password and token from body
+def reset_password_with_token(token): # If token in URL
+# def reset_password_route(): # If token in body
     data = request.get_json()
-    token = data.get('token')
-    email = data.get('email') # Get email from request body as well
+    # token = data.get('token') # If token in body
     new_password = data.get('new_password')
 
-    if not token or not new_password or not email:
-        return jsonify({"success": False, "message": "Token, email et nouveau mot de passe sont requis."}), 400
+    if not token or not new_password:
+        return jsonify({'success': False, 'message': 'Token and new password are required.'}), 400
+    
     if len(new_password) < 8:
-        return jsonify({"success": False, "message": "Le nouveau mot de passe doit faire au moins 8 caractères."}), 400
-    if not is_valid_email(email):
-         return jsonify({"success": False, "message": "Format d'email invalide fourni pour la réinitialisation."}), 400
+        return jsonify({'success': False, 'message': 'New password must be at least 8 characters long.'}), 400
 
-    db = None
+    s = URLSafeTimedSerializer(current_app.config['SECRET_KEY'], salt=current_app.config['PASSWORD_RESET_SALT'])
     try:
-        # In a real app:
-        # 1. Validate the token (check against DB if stored, check expiry, check if used)
-        # 2. If token is valid, get the user_id associated with it.
-        # For this mock: We use the email to find the user, assuming token validity is checked on frontend or is implicit
-        
-        db = get_db()
-        cursor = db.cursor()
-        cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
-        user = cursor.fetchone()
+        token_data = s.loads(token, max_age=3600) # Token valid for 1 hour
+        user_id = token_data.get('user_id')
+        email_from_token = token_data.get('email') # For extra verification if needed
 
-        if not user:
-            # This implies the email (and thus the "token" if it were real) is invalid or user doesn't exist.
-            return jsonify({"success": False, "message": "Lien de réinitialisation invalide ou expiré."}), 400 # Or 404
+        user = User.query.get(user_id)
+        if not user or user.email != email_from_token: # Basic check
+            return jsonify({'success': False, 'message': 'Invalid or expired reset link (user mismatch).'}), 400
 
-        user_id = user['id']
-        hashed_password = generate_password_hash(new_password)
-        cursor.execute("UPDATE users SET password_hash = ? WHERE id = ?", (hashed_password, user_id))
-        
-        # In a real app, you would invalidate the used token here (e.g., mark as used in DB).
-        
-        db.commit()
-        current_app.logger.info(f"Mot de passe réinitialisé pour l'utilisateur ID {user_id} (Email: {email}).")
-        return jsonify({"success": True, "message": "Mot de passe réinitialisé avec succès. Vous pouvez maintenant vous connecter."}), 200
+        user.password_hash = generate_password_hash(new_password)
+        db.session.commit()
+        # TODO: Send password change confirmation email
+        return jsonify({'success': True, 'message': 'Password has been reset successfully.'})
 
+    except SignatureExpired:
+        return jsonify({'success': False, 'message': 'Password reset link has expired.'}), 400
+    except BadTimeSignature:
+        return jsonify({'success': False, 'message': 'Invalid password reset link (bad signature).'}), 400
     except Exception as e:
-        if db: db.rollback()
-        current_app.logger.error(f"Erreur lors de la réinitialisation du mot de passe pour {email}: {e}", exc_info=True)
-        return jsonify({"success": False, "message": "Erreur serveur lors de la réinitialisation du mot de passe."}), 500
-    finally:
-        if db: db.close()
+        db.session.rollback()
+        current_app.logger.error(f"Error resetting password with token: {e}", exc_info=True)
+        return jsonify({'success': False, 'message': 'Error resetting password.'}), 500
+
+@auth_bp.route('/me', methods=['GET'])
+@token_required
+def get_current_user():
+    user_id = g.current_user_id
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    return jsonify({'success': True, 'user': user.to_dict()})
+
+@auth_bp.route('/logout', methods=['POST'])
+@token_required # Optional: could just be a client-side token removal
+def logout():
+    # Server-side logout for JWT is typically about managing token blocklists if you need immediate invalidation.
+    # For simplicity, client should just discard the token.
+    # If you implement a blocklist, add token to it here.
+    g.current_user_id = None
+    g.user_type = None
+    g.is_admin = False
+    return jsonify({'success': True, 'message': 'Successfully logged out.'})
