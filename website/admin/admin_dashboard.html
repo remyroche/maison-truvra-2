@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Maison Trüvra</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="css/admin_styles.css"> <style>
+        /* Basic styling for dashboard cards and sections if not fully covered by Tailwind/admin_styles.css */
+        .stat-card {
+            @apply bg-white p-6 rounded-lg shadow-lg text-center;
+        }
+        .stat-card h3 {
+            @apply text-gray-600 text-sm font-medium mb-1;
+        }
+        .stat-card p {
+            @apply text-3xl font-semibold text-gray-800;
+        }
+        .dashboard-section {
+            @apply bg-white p-6 rounded-lg shadow-lg mb-8;
+        }
+        .dashboard-section h2 {
+            @apply text-xl font-semibold text-gray-700 mb-4 border-b pb-2;
+        }
+        .quick-action-button {
+            @apply bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-md transition duration-150 ease-in-out inline-block text-sm;
+        }
+        #recent-activity-list li {
+            @apply border-b last:border-b-0 py-2 text-sm text-gray-600;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans">
+    <div class="flex h-screen">
+        <div id="sidebar-container" class="bg-gray-800 text-white w-64 space-y-6 py-7 px-2 fixed inset-y-0 left-0 transform -translate-x-full md:relative md:translate-x-0 transition duration-200 ease-in-out">
+            </div>
+
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <header class="bg-white shadow p-4 flex justify-between items-center">
+                <h1 class="text-2xl font-semibold text-gray-800" data-i18n="admin.dashboard.title">Admin Dashboard</h1>
+                <button id="sidebar-toggle" class="text-gray-600 md:hidden">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                    </svg>
+                </button>
+                </header>
+
+            <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-6">
+                <section class="dashboard-section overview-stats">
+                    <h2 data-i18n="admin.dashboard.overview">Overview</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <div class="stat-card">
+                            <h3 data-i18n="admin.dashboard.totalSales">Total Sales</h3>
+                            <p id="total-sales" class="text-green-600">€0.00</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3 data-i18n="admin.dashboard.totalOrders">Total Orders</h3>
+                            <p id="total-orders" class="text-blue-600">0</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3 data-i18n="admin.dashboard.newCustomers">New Customers (Last 30d)</h3>
+                            <p id="new-customers" class="text-purple-600">0</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3 data-i18n="admin.dashboard.pendingB2BApprovals">Pending B2B Approvals</h3>
+                            <p id="pending-b2b-approvals" class="text-yellow-600">0</p>
+                        </div>
+                         <div class="stat-card">
+                            <h3 data-i18n="admin.dashboard.totalUsers">Total Users</h3>
+                            <p id="total-users-stat" class="text-teal-600">0</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3 data-i18n="admin.dashboard.totalProducts">Total Products</h3>
+                            <p id="total-products-stat" class="text-pink-600">0</p>
+                        </div>
+                    </div>
+                </section>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <section class="dashboard-section recent-activity">
+                        <h2 data-i18n="admin.dashboard.recentActivity">Recent Activity / Notifications</h2>
+                        <ul id="recent-activity-list" class="space-y-2">
+                            <li data-i18n="admin.dashboard.noNewNotifications">No new notifications.</li>
+                        </ul>
+                    </section>
+
+                    <section class="dashboard-section quick-actions">
+                        <h2 data-i18n="admin.dashboard.quickActions">Quick Actions</h2>
+                        <div class="space-y-3">
+                            <a href="admin_manage_products.html" class="quick-action-button w-full text-center" data-i18n="admin.dashboard.manageProducts">Manage Products</a>
+                            <a href="admin_manage_orders.html" class="quick-action-button w-full text-center" data-i18n="admin.dashboard.viewOrders">View Orders</a>
+                            <a href="admin_manage_users.html" class="quick-action-button w-full text-center" data-i18n="admin.dashboard.manageUsers">Manage Users</a>
+                            <a href="admin_manage_reviews.html" class="quick-action-button w-full text-center" data-i18n="admin.dashboard.moderateReviews">Moderate Reviews</a>
+                        </div>
+                    </section>
+                </div>
+                 <div id="dashboard-error-message" class="mt-4 p-4 bg-red-100 text-red-700 rounded-md hidden"></div>
+            </main>
+        </div>
+    </div>
+
+    <div id="admin-global-message" class="hidden fixed bottom-5 right-5 bg-indigo-600 text-white p-4 rounded-lg shadow-md z-[1060]">
+        <p id="admin-global-message-text"></p>
+        <button id="close-admin-global-message" class="ml-4 text-xl font-bold">&times;</button>
+    </div>
+
+    <script src="../js/config.js"></script>
+    <script src="../js/i18n.js"></script>
+    
+    <script src="js/admin_api.js"></script>
+    <script src="js/admin_auth.js"></script>
+    <script src="js/admin_ui.js"></script>
+    <script src="js/admin_main.js"></script> <script src="js/admin_dashboard.js"></script>
+
+</body>
+</html>
