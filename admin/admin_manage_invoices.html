@@ -10,18 +10,30 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="admin_styles.css">
 </head>
+<body id="page-admin-manage-invoices" class="bg-brand-cream text-brand-earth-brown font-inter"><!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gérer les Factures (B2B) - Admin Maison Trüvra</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="admin_styles.css">
+</head>
 <body id="page-admin-manage-invoices" class="bg-brand-cream text-brand-earth-brown font-inter">
     <div class="admin-layout">
-<div id="admin-sidebar-placeholder"></div>
+        <div id="admin-sidebar-placeholder"></div>
 
         <main class="admin-main-content">
             <header class="admin-main-header">
-                <h1 class="text-3xl font-serif text-brand-near-black">Gestion des Factures (Professionnels)</h1>
+                <h1 class="text-3xl font-serif text-brand-near-black" data-translate-key="Admin_Gestion_Factures_B2B">Gestion des Factures (Professionnels)</h1>
             </header>
 
             <section class="p-6">
                 <div class="admin-card p-6 mb-8">
-                    <h2 class="text-xl font-serif text-brand-near-black mb-4">Sélectionner un Professionnel</h2>
+                    <h2 class="text-xl font-serif text-brand-near-black mb-4" data-translate-key="Selectionner_Professionnel">Sélectionner un Professionnel</h2>
                     <div>
                         <label for="select-b2b-user-for-invoice" class="form-label-admin">Client Professionnel:</label>
                         <select id="select-b2b-user-for-invoice" class="form-select-admin">
@@ -31,52 +43,59 @@
                 </div>
 
                 <div id="upload-invoice-form-section" class="admin-card p-6 mb-8" style="display:none;">
-                    <h2 class="text-xl font-serif text-brand-near-black mb-6">Téléverser une Nouvelle Facture pour <span id="selected-b2b-user-name-invoice" class="font-bold"></span></h2>
+                    <h2 class="text-xl font-serif text-brand-near-black mb-6">
+                        <span data-translate-key="Televerser_Nouvelle_Facture">Téléverser une Nouvelle Facture pour</span>
+                        <span id="selected-b2b-user-name-invoice" class="font-bold"></span>
+                    </h2>
                     <form id="admin-upload-invoice-form" class="space-y-4">
                         <input type="hidden" id="invoice-user-id-hidden" name="user_id">
+
                         <div>
-                            <label for="invoice-number" class="form-label-admin">Numéro de Facture <span class="text-red-500">*</span></label>
+                            <label for="invoice-number" class="form-label-admin"><span data-translate-key="Numero_Facture">Numéro de Facture</span> <span class="text-red-500">*</span></label>
                             <input type="text" id="invoice-number" name="invoice_number" class="form-input-admin" required>
                         </div>
                         <div>
-                            <label for="invoice-date" class="form-label-admin">Date de Facture <span class="text-red-500">*</span></label>
+                            <label for="invoice-date" class="form-label-admin"><span data-translate-key="Date_Facture">Date de Facture</span> <span class="text-red-500">*</span></label>
                             <input type="date" id="invoice-date" name="invoice_date" class="form-input-admin" required>
                         </div>
                          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
-                                <label for="invoice-total-ht" class="form-label-admin">Montant Total HT (€) <span class="text-red-500">*</span></label>
+                                <label for="invoice-total-ht" class="form-label-admin"><span data-translate-key="Montant_HT">Montant Total HT (€)</span> <span class="text-red-500">*</span></label>
                                 <input type="number" id="invoice-total-ht" name="total_amount_ht" step="0.01" class="form-input-admin" required>
                             </div>
                             <div>
-                                <label for="invoice-total-ttc" class="form-label-admin">Montant Total TTC (€) <span class="text-red-500">*</span></label>
+                                <label for="invoice-total-ttc" class="form-label-admin"><span data-translate-key="Montant_TTC">Montant Total TTC (€)</span> <span class="text-red-500">*</span></label>
                                 <input type="number" id="invoice-total-ttc" name="total_amount_ttc" step="0.01" class="form-input-admin" required>
                             </div>
                         </div>
                         <div>
-                            <label for="invoice-discount" class="form-label-admin">Remise (%)</label>
+                            <label for="invoice-discount" class="form-label-admin"><span data-translate-key="Remise_Pourcentage">Remise (%)</span></label>
                             <input type="number" id="invoice-discount" name="discount_percentage" step="0.01" class="form-input-admin" placeholder="Ex: 5 pour 5%" value="0">
                         </div>
                         <div>
-                            <label for="invoice-file" class="form-label-admin">Fichier PDF de la Facture <span class="text-red-500">*</span></label>
+                            <label for="invoice-file" class="form-label-admin"><span data-translate-key="Fichier_PDF_Facture">Fichier PDF de la Facture</span> <span class="text-red-500">*</span></label>
                             <input type="file" id="invoice-file" name="invoice_file" class="form-input-admin" accept=".pdf" required>
                         </div>
                         <div class="flex justify-end">
-                            <button type="submit" class="btn-admin-primary">Téléverser la Facture</button>
+                            <button type="submit" class="btn-admin-primary" data-translate-key="Televerser_Facture">Téléverser la Facture</button>
                         </div>
                     </form>
                 </div>
 
                 <div id="user-invoices-list-section" class="admin-card overflow-x-auto" style="display:none;">
-                    <h2 class="text-xl font-serif text-brand-near-black p-6">Factures pour <span id="selected-b2b-user-name-list" class="font-bold"></span></h2>
+                    <h2 class="text-xl font-serif text-brand-near-black p-6">
+                        <span data-translate-key="Factures_Pour_Utilisateur_Selectionne">Factures pour</span>
+                        <span id="selected-b2b-user-name-list" class="font-bold"></span>
+                    </h2>
                     <table id="admin-invoices-table" class="admin-table">
                         <thead>
                             <tr>
-                                <th scope="col">N° Facture</th>
-                                <th scope="col">Date</th>
-                                <th scope="col">Montant TTC</th>
+                                <th scope="col" data-translate-key="Numero_Facture">N° Facture</th>
+                                <th scope="col" data-translate-key="Date">Date</th>
+                                <th scope="col" data-translate-key="Montant_TTC">Montant TTC</th>
                                 <th scope="col">Fichier</th>
                                 <th scope="col">Téléversée le</th>
-                                <th scope="col">Actions</th>
+                                <th scope="col" data-translate-key="Actions">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="admin-invoices-table-body">
@@ -90,7 +109,8 @@
 
     <script src="js/admin_config.js"></script>
     <script src="js/admin_ui.js"></script>
-    <script src="js/admin_api.js"></script> <script src="js/admin_auth.js"></script>
+    <script src="js/admin_api.js"></script>
+    <script src="js/admin_auth.js"></script>
     <script src="js/admin_invoices.js"></script> <script src="js/admin_main.js"></script>
 </body>
 </html>
