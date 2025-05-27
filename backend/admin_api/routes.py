@@ -1,22 +1,19 @@
 # backend/admin_api/routes.py
-from flask import Blueprint, request, jsonify, current_app, send_from_directory, url_for
-from werkzeug.utils import secure_filename
+from flask import Blueprint, request, jsonify, current_app, g, send_file
+import sqlite3
 import os
-import json
-from datetime import datetime, timedelta
+import datetime
+from ..database import get_db
+from ..auth.routes import admin_required # Decorator from auth_bp
+from ..utils import log_error, is_valid_email # Assuming you have these
+# New Imports
+from ..email_utils import send_b2b_approval_email # Placeholder for email sending
+from ..services.audit_service import AuditLogService # Placeholder for audit logging
+# Import the invoice generation function and calculation
+from ...generate_professional_invoice import generate_invoice_pdf, calculate_invoice_totals # Adjusted path assuming generate_professional_invoice.py is in the root
+from werkzeug.utils import secure_filename # For file uploads
 
-from ..database import db, Product, User, Order, OrderItem, StockMovement, ProductVariant, Invoice
-from ..services.asset_service import (
-    generate_product_qr_code_image,
-    generate_product_passport_html_content,
-    save_product_passport_html_to_file,
-    generate_product_label_image
-)
-from ..services.invoice_service import generate_invoice_pdf_to_file, calculate_invoice_totals_service
-from ..auth.routes import admin_required # Assuming decorators are in auth.routes
-from sqlalchemy import func, or_
-
-admin_api_bp_for_app = Blueprint('admin_api', __name__)
+admin_api_bp = Blueprint('admin_api_bp', __name__)
 
 ALLOWED_EXTENSIONS = {'pdf'}
 
@@ -827,3 +824,390 @@ def get_dashboard_stats():
     except Exception as e:
         current_app.logger.error(f"Error fetching dashboard stats: {e}", exc_info=True)
         return jsonify({'success': False, 'message': f'Error fetching stats: {str(e)}'}), 500
+
+
+
+# --- B2B User Management ---
+@admin_api_bp.route('/users/b2b/pending', methods=['GET'])
+@admin_required
+def get_pending_b2b_users():
+    db = None
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("""
+            SELECT id, email, company_name, nom, prenom, phone_number, created_at 
+            FROM users 
+            WHERE user_type = 'b2b' AND status = 'pending_approval' 
+            ORDER BY created_at DESC
+        """)
+        pending_users = [dict(row) for row in cursor.fetchall()]
+        AuditLogService.log_event(action="ADMIN_VIEWED_PENDING_B2B_USERS", target_type="ADMIN_PANEL")
+        return jsonify({"success": True, "users": pending_users}), 200
+    except Exception as e:
+        log_error(f"Erreur récupération utilisateurs B2B en attente: {e}")
+        AuditLogService.log_event(action="ADMIN_VIEW_PENDING_B2B_ERROR", details={"error": str(e)}, success=False)
+        return jsonify({"success": False, "message": "Erreur serveur."}), 500
+    finally:
+        if db: db.close()
+
+@admin_api_bp.route('/users/b2b/<int:user_id>/approve', methods=['POST'])
+@admin_required
+def approve_b2b_user(user_id):
+    db = None
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT email, company_name, status FROM users WHERE id = ? AND user_type = 'b2b'", (user_id,))
+        user = cursor.fetchone()
+
+        if not user:
+            AuditLogService.log_event(action="ADMIN_APPROVE_B2B_NOT_FOUND", target_type="USER", target_id=user_id, success=False)
+            return jsonify({"success": False, "message": "Utilisateur B2B non trouvé."}), 404
+        if user['status'] == 'active':
+            AuditLogService.log_event(action="ADMIN_APPROVE_B2B_ALREADY_ACTIVE", target_type="USER", target_id=user_id, success=False)
+            return jsonify({"success": False, "message": "Ce compte est déjà actif."}), 400
+
+        cursor.execute("UPDATE users SET status = 'active' WHERE id = ?", (user_id,))
+        db.commit()
+
+        if cursor.rowcount > 0:
+            # Send approval email to B2B user
+            email_sent = send_b2b_approval_email(user['email'], user['company_name'])
+            if email_sent:
+                AuditLogService.log_event(action="ADMIN_APPROVED_B2B_USER", target_type="USER", target_id=user_id, details={"email": user['email'], "email_notification_sent": True})
+                return jsonify({"success": True, "message": f"Compte B2B pour {user['company_name']} approuvé. Email de notification envoyé."}), 200
+            else:
+                AuditLogService.log_event(action="ADMIN_APPROVED_B2B_USER", target_type="USER", target_id=user_id, details={"email": user['email'], "email_notification_failed": True})
+                # Still success for approval, but note email failure
+                return jsonify({"success": True, "message": f"Compte B2B pour {user['company_name']} approuvé, mais l'email de notification n'a pas pu être envoyé."}), 200 # Or 207 Multi-Status
+        else:
+            AuditLogService.log_event(action="ADMIN_APPROVE_B2B_NO_UPDATE", target_type="USER", target_id=user_id, success=False)
+            return jsonify({"success": False, "message": "Échec de l'approbation du compte."}), 500
+
+    except Exception as e:
+        if db: db.rollback()
+        log_error(f"Erreur lors de l'approbation du compte B2B {user_id}: {e}")
+        AuditLogService.log_event(action="ADMIN_APPROVE_B2B_ERROR", target_type="USER", target_id=user_id, details={"error": str(e)}, success=False)
+        return jsonify({"success": False, "message": "Erreur serveur."}), 500
+    finally:
+        if db: db.close()
+
+@admin_api_bp.route('/users/b2b/<int:user_id>/status', methods=['PUT'])
+@admin_required
+def update_b2b_user_status(user_id):
+    data = request.get_json()
+    new_status = data.get('status')
+
+    if not new_status or new_status not in ['active', 'suspended', 'pending_approval']: # Add other valid statuses if any
+        return jsonify({"success": False, "message": "Statut invalide fourni."}), 400
+
+    db = None
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT status, email, company_name FROM users WHERE id = ? AND user_type = 'b2b'", (user_id,))
+        user = cursor.fetchone()
+        if not user:
+            return jsonify({"success": False, "message": "Utilisateur B2B non trouvé."}), 404
+
+        old_status = user['status']
+        if old_status == new_status:
+            return jsonify({"success": True, "message": "Le statut est déjà à jour."}), 200
+
+        cursor.execute("UPDATE users SET status = ? WHERE id = ?", (new_status, user_id))
+        db.commit()
+
+        AuditLogService.log_event(
+            action="ADMIN_UPDATED_B2B_USER_STATUS",
+            target_type="USER", target_id=user_id,
+            details={"email": user['email'], "old_status": old_status, "new_status": new_status, "admin_id": g.current_user_id}
+        )
+        # Optionally send notification to user if status changes to 'suspended' or back to 'active'
+        return jsonify({"success": True, "message": f"Statut du compte pour {user['company_name']} mis à jour à '{new_status}'."}), 200
+    except Exception as e:
+        if db: db.rollback()
+        log_error(f"Erreur MAJ statut B2B user {user_id}: {e}")
+        return jsonify({"success": False, "message": "Erreur serveur."}), 500
+    finally:
+        if db: db.close()
+
+
+# --- B2B Invoice Management ---
+@admin_api_bp.route('/invoices/b2b', methods=['POST'])
+@admin_required
+def create_b2b_invoice():
+    data = request.form # Using request.form for potential file upload later
+    
+    # --- Extract and Validate Data ---
+    user_id = data.get('user_id_for_creation')
+    invoice_number = data.get('invoice_number_create')
+    invoice_date_str = data.get('invoice_date_create')
+    invoice_due_date_str = data.get('invoice_due_date_create')
+    
+    client_company_name = data.get('client_company_name') # Should be fetched from user_id ideally
+    client_contact_person = data.get('client_contact_person') # Should be fetched
+    client_address_lines_str = data.get('client_address_lines', '')
+    client_vat_number = data.get('client_vat_number', '')
+    
+    discount_percentage_str = data.get('discount_percentage_create', "0")
+    vat_rate_percent_str = data.get('vat_rate_percent_create', "20")
+
+    # Basic validation
+    if not all([user_id, invoice_number, invoice_date_str, invoice_due_date_str]):
+        return jsonify({"success": False, "message": "Champs de facture requis manquants."}), 400
+    try:
+        user_id = int(user_id)
+        # Validate dates
+        invoice_date = datetime.datetime.strptime(invoice_date_str, '%Y-%m-%d').date()
+        invoice_due_date = datetime.datetime.strptime(invoice_due_date_str, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({"success": False, "message": "Format de date invalide (AAAA-MM-JJ attendu)."}), 400
+
+    # --- Line Items ---
+    items_data = []
+    item_index = 0
+    while True:
+        desc = data.get(f'items[{item_index}][description]')
+        qty_str = data.get(f'items[{item_index}][quantity]')
+        price_str = data.get(f'items[{item_index}][unit_price_ht]')
+        if not desc: break # No more items
+        try:
+            qty = int(qty_str)
+            price = float(price_str)
+            if qty <= 0 or price < 0:
+                return jsonify({"success": False, "message": f"Quantité ou prix invalide pour l'article '{desc}'."}), 400
+            items_data.append({
+                "description": desc,
+                "quantity": qty,
+                "unit_price_ht": price,
+                "total_ht": qty * price
+            })
+        except (ValueError, TypeError):
+            return jsonify({"success": False, "message": f"Données d'article invalides pour '{desc}'."}), 400
+        item_index += 1
+    
+    if not items_data:
+        return jsonify({"success": False, "message": "Au moins un article est requis pour la facture."}), 400
+
+    # --- Calculate Totals (using the function from generate_professional_invoice.py) ---
+    calculated_totals = calculate_invoice_totals(items_data, discount_percentage_str, vat_rate_percent_str)
+
+    # --- Prepare data for PDF generation ---
+    # Fetch B2B user details for the invoice header
+    db_conn = get_db()
+    cursor = db_conn.cursor()
+    cursor.execute("SELECT company_name, nom, prenom, email FROM users WHERE id = ? AND user_type = 'b2b'", (user_id,))
+    b2b_user = cursor.fetchone()
+    if not b2b_user:
+        db_conn.close()
+        return jsonify({"success": False, "message": "Client B2B non trouvé."}), 404
+    
+    # Use B2B user's actual company name and contact if not overridden by form
+    client_data_for_pdf = {
+        "company_name": client_company_name or b2b_user['company_name'],
+        "contact_person": client_contact_person or f"{b2b_user['prenom']} {b2b_user['nom']}",
+        "address_lines": [line.strip() for line in client_address_lines_str.split('\n') if line.strip()],
+        "vat_number": client_vat_number
+    }
+    
+    invoice_data_for_pdf = {
+        "number": invoice_number,
+        "date": invoice_date_str,
+        "due_date": invoice_due_date_str,
+        "total_ht": calculated_totals['total_ht_before_discount'], # Sum of line items
+        "discount_percent": calculated_totals['discount_percent'],
+        "discount_amount_ht": calculated_totals['discount_amount_ht'],
+        "total_ht_after_discount": calculated_totals['total_ht_after_discount'],
+        "vat_rate_percent": calculated_totals['vat_rate_percent'],
+        "vat_amount": calculated_totals['vat_amount'],
+        "total_ttc": calculated_totals['total_ttc']
+    }
+
+    # --- Generate PDF ---
+    invoices_dir = current_app.config.get('INVOICES_UPLOAD_DIR')
+    if not invoices_dir:
+        log_error("INVOICES_UPLOAD_DIR n'est pas configuré.")
+        db_conn.close()
+        return jsonify({"success": False, "message": "Configuration serveur incorrecte pour les factures."}), 500
+    os.makedirs(invoices_dir, exist_ok=True)
+    
+    # Sanitize invoice number for filename
+    safe_invoice_filename_base = secure_filename(f"Facture_{invoice_number.replace('/', '-')}")
+    pdf_filename = f"{safe_invoice_filename_base}.pdf"
+    pdf_filepath = os.path.join(invoices_dir, pdf_filename)
+
+    # Get configurable invoice template data from app_settings or config
+    # For simplicity, using hardcoded values from generate_professional_invoice.py for now
+    # In a real app, fetch these from DB (app_settings table) or app.config
+    # company_info_for_pdf = { ... load from config/DB ... }
+    # generate_invoice_pdf(pdf_filepath, client_data_for_pdf, invoice_data_for_pdf, items_data, company_info_for_pdf)
+    
+    # Using the generate_invoice_pdf that reads its own constants for company info
+    try:
+        generate_invoice_pdf(pdf_filepath, client_data_for_pdf, invoice_data_for_pdf, items_data)
+    except Exception as e:
+        log_error(f"Erreur lors de la génération du PDF de la facture {invoice_number}: {e}")
+        db_conn.close()
+        return jsonify({"success": False, "message": f"Erreur lors de la génération du PDF: {str(e)}"}), 500
+
+    # --- Save Invoice to Database ---
+    try:
+        cursor.execute(
+            """INSERT INTO invoices (user_id, invoice_number, invoice_date, due_date, 
+                                  total_amount_ht, total_amount_ttc, vat_amount, discount_amount,
+                                  status, file_path, created_by_admin_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, invoice_number, invoice_date, invoice_due_date,
+             calculated_totals['total_ht_after_discount'], calculated_totals['total_ttc'],
+             calculated_totals['vat_amount'], calculated_totals['discount_amount_ht'],
+             'pending', # Default status
+             pdf_filename, # Store only filename, not full path
+             g.current_user_id)
+        )
+        invoice_id = cursor.lastrowid
+        db_conn.commit()
+        AuditLogService.log_event(
+            action="ADMIN_CREATED_B2B_INVOICE", target_type="INVOICE", target_id=invoice_id,
+            details={"user_id": user_id, "invoice_number": invoice_number, "total_ttc": calculated_totals['total_ttc'], "admin_id": g.current_user_id}
+        )
+        return jsonify({
+            "success": True, 
+            "message": "Facture B2B créée et PDF généré avec succès.",
+            "invoice_id": invoice_id,
+            "pdf_filename": pdf_filename, # Frontend can use this to construct download URL
+            "pdf_download_url": url_for('professional_bp_routes.download_professional_invoice', invoice_id=invoice_id, _external=False) # Relative URL for professional to download
+        }), 201
+
+    except sqlite3.IntegrityError as ie: # e.g. duplicate invoice_number for user
+        if db_conn: db_conn.rollback()
+        log_error(f"Erreur d'intégrité DB création facture B2B: {ie}")
+        # Clean up generated PDF if DB insert fails
+        if os.path.exists(pdf_filepath): os.remove(pdf_filepath)
+        return jsonify({"success": False, "message": "Erreur de base de données: Le numéro de facture existe peut-être déjà pour ce client."}), 409
+    except Exception as e:
+        if db_conn: db_conn.rollback()
+        log_error(f"Erreur sauvegarde facture B2B en DB: {e}")
+        if os.path.exists(pdf_filepath): os.remove(pdf_filepath)
+        return jsonify({"success": False, "message": "Erreur serveur lors de la sauvegarde de la facture."}), 500
+    finally:
+        if db_conn: db_conn.close()
+
+
+@admin_api_bp.route('/invoices/b2b/<int:invoice_id>/status', methods=['PUT'])
+@admin_required
+def update_b2b_invoice_status(invoice_id):
+    data = request.get_json()
+    new_status = data.get('status')
+    paid_date_str = data.get('paid_date') # Optional
+
+    valid_statuses = ['pending', 'paid', 'overdue', 'cancelled'] # Define your statuses
+    if not new_status or new_status not in valid_statuses:
+        return jsonify({"success": False, "message": f"Statut invalide. Doit être l'un de: {', '.join(valid_statuses)}."}), 400
+
+    paid_date = None
+    if new_status == 'paid':
+        if paid_date_str:
+            try:
+                paid_date = datetime.datetime.strptime(paid_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({"success": False, "message": "Format de date de paiement invalide (AAAA-MM-JJ)."}), 400
+        else: # If marking as paid, default paid_date to today if not provided
+            paid_date = datetime.date.today()
+    
+    db = None
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT status, user_id, invoice_number FROM invoices WHERE invoice_id = ?", (invoice_id,))
+        invoice = cursor.fetchone()
+        if not invoice:
+            return jsonify({"success": False, "message": "Facture non trouvée."}), 404
+
+        old_status = invoice['status']
+        if old_status == new_status and (new_status != 'paid' or (new_status == 'paid' and not paid_date_str)): # no change if status same unless it's paid and paid_date is being explicitly set
+            return jsonify({"success": True, "message": "Le statut de la facture est déjà à jour."}), 200
+
+        if new_status == 'paid':
+            cursor.execute("UPDATE invoices SET status = ?, paid_date = ?, last_updated_by_admin_id = ?, last_updated_at = CURRENT_TIMESTAMP WHERE invoice_id = ?", 
+                           (new_status, paid_date, g.current_user_id, invoice_id))
+        else: # For other statuses, nullify paid_date
+            cursor.execute("UPDATE invoices SET status = ?, paid_date = NULL, last_updated_by_admin_id = ?, last_updated_at = CURRENT_TIMESTAMP WHERE invoice_id = ?", 
+                           (new_status, g.current_user_id, invoice_id))
+        db.commit()
+
+        AuditLogService.log_event(
+            action="ADMIN_UPDATED_INVOICE_STATUS",
+            target_type="INVOICE", target_id=invoice_id,
+            details={
+                "invoice_number": invoice['invoice_number'], "user_id": invoice['user_id'],
+                "old_status": old_status, "new_status": new_status, 
+                "paid_date_set": str(paid_date) if paid_date else None,
+                "admin_id": g.current_user_id
+            }
+        )
+        # Optionally, send notification to B2B user about invoice status change (e.g., if paid)
+        return jsonify({"success": True, "message": f"Statut de la facture {invoice['invoice_number']} mis à jour à '{new_status}'."}), 200
+    except Exception as e:
+        if db: db.rollback()
+        log_error(f"Erreur MAJ statut facture {invoice_id}: {e}")
+        return jsonify({"success": False, "message": "Erreur serveur."}), 500
+    finally:
+        if db: db.close()
+
+@admin_api_bp.route('/invoices/b2b/for-user/<int:user_id>', methods=['GET'])
+@admin_required
+def get_b2b_invoices_for_user(user_id):
+    db = None
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute(
+            """SELECT invoice_id, invoice_number, invoice_date, due_date, total_amount_ttc, status, paid_date, file_path 
+               FROM invoices 
+               WHERE user_id = ? 
+               ORDER BY invoice_date DESC""", (user_id,))
+        invoices = [dict(row) for row in cursor.fetchall()]
+        return jsonify({"success": True, "invoices": invoices}), 200
+    except Exception as e:
+        log_error(f"Erreur récupération factures pour B2B user {user_id}: {e}")
+        return jsonify({"success": False, "message": "Erreur serveur."}), 500
+    finally:
+        if db: db.close()
+
+# --- Endpoint for getting invoice template settings (Conceptual) ---
+@admin_api_bp.route('/settings/invoice-template', methods=['GET'])
+@admin_required
+def get_invoice_template_settings():
+    # In a real app, fetch these from the 'app_settings' table or a config file
+    settings = {
+        "company_name": current_app.config.get('INVOICE_COMPANY_NAME', "Maison Trüvra SARL (Default)"),
+        "company_address_lines": current_app.config.get('INVOICE_COMPANY_ADDRESS_LINES', ["123 Rue de la Truffe", "75001 Paris, France"]),
+        "company_siret": current_app.config.get('INVOICE_COMPANY_SIRET', "SIRET: 123 456 789 00012"),
+        "company_vat_number": current_app.config.get('INVOICE_COMPANY_VAT_NUMBER', "TVA: FR 00 123456789"),
+        "company_contact_info": current_app.config.get('INVOICE_COMPANY_CONTACT_INFO', "contact@maisontruvra.com | +33 1 23 45 67 89"),
+        "company_logo_path": current_app.config.get('INVOICE_COMPANY_LOGO_PATH', "../website/image_6be700.png"), # Path relative to generate_professional_invoice.py
+        "invoice_footer_text": current_app.config.get('INVOICE_FOOTER_TEXT', "Merci de votre confiance. Conditions de paiement : 30 jours net."),
+        "bank_details": current_app.config.get('INVOICE_BANK_DETAILS', "Banque: XYZ | IBAN: FR76 ... | BIC: ...")
+    }
+    AuditLogService.log_event(action="ADMIN_VIEWED_INVOICE_TEMPLATE_SETTINGS", target_type="ADMIN_PANEL")
+    return jsonify({"success": True, "settings": settings}), 200
+
+@admin_api_bp.route('/settings/invoice-template', methods=['POST'])
+@admin_required
+def update_invoice_template_settings():
+    data = request.get_json()
+    # In a real app, validate and save these to the 'app_settings' table or update a config file (requires app restart for config file)
+    # For simplicity, this is conceptual.
+    # Example:
+    # for key, value in data.items():
+    #     if key in VALID_INVOICE_SETTINGS_KEYS:
+    #         save_setting_to_db(key, value) # Your function to update DB
+    AuditLogService.log_event(action="ADMIN_UPDATED_INVOICE_TEMPLATE_SETTINGS", target_type="ADMIN_PANEL", details=data)
+    return jsonify({"success": True, "message": "Paramètres du modèle de facture (conceptuellement) mis à jour."}), 200
+
+
+# Add other admin API routes (products, orders, inventory, dashboard data) here...
+# Remember to add @admin_required and AuditLogService calls
+
+
