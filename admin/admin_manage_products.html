@@ -4,6 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gérer les Produits - Admin Maison Trüvra</title>
+    <script src="https://cdn.tailwindcss.com"></script><!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gérer les Produits - Admin Maison Trüvra</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -37,15 +43,23 @@
                     <h2 id="product-form-title" class="text-2xl font-serif text-brand-near-black mb-6">Ajouter un Nouveau Produit</h2>
                     <form id="product-form" class="space-y-5">
                         <input type="hidden" id="product-edit-id" value="">
-                        
+
                         <div>
                             <label for="product-id" class="form-label-admin">ID Produit (unique, ex: "truffe-noire-20g")</label>
                             <input type="text" id="product-id" name="id" class="form-input-admin" required>
                         </div>
-                        <div>
-                            <label for="product-name" class="form-label-admin">Nom du Produit</label>
-                            <input type="text" id="product-name" name="name" class="form-input-admin" required>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label for="product-name-fr" class="form-label-admin">Nom du Produit (FR)</label>
+                                <input type="text" id="product-name-fr" name="name_fr" class="form-input-admin" required>
+                            </div>
+                            <div>
+                                <label for="product-name-en" class="form-label-admin">Product Name (EN)</label>
+                                <input type="text" id="product-name-en" name="name_en" class="form-input-admin" required>
+                            </div>
                         </div>
+
                         <div>
                             <label for="product-category" class="form-label-admin">Catégorie</label>
                             <select id="product-category" name="category" class="form-select-admin" required>
@@ -57,14 +71,28 @@
                                 <option value="Other">Autre</option>
                             </select>
                         </div>
-                        <div>
-                            <label for="product-short-description" class="form-label-admin">Description Courte</label>
-                            <textarea id="product-short-description" name="short_description" rows="2" class="form-textarea-admin"></textarea>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label for="product-short-description-fr" class="form-label-admin">Description Courte (FR)</label>
+                                <textarea id="product-short-description-fr" name="short_description_fr" rows="2" class="form-textarea-admin"></textarea>
+                            </div>
+                            <div>
+                                <label for="product-short-description-en" class="form-label-admin">Short Description (EN)</label>
+                                <textarea id="product-short-description-en" name="short_description_en" rows="2" class="form-textarea-admin"></textarea>
+                            </div>
                         </div>
-                        <div>
-                            <label for="product-long-description" class="form-label-admin">Description Longue</label>
-                            <textarea id="product-long-description" name="long_description" rows="4" class="form-textarea-admin"></textarea>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label for="product-long-description-fr" class="form-label-admin">Description Longue (FR)</label>
+                                <textarea id="product-long-description-fr" name="long_description_fr" rows="4" class="form-textarea-admin"></textarea>
+                            </div>
+                            <div>
+                                <label for="product-long-description-en" class="form-label-admin">Long Description (EN)</label>
+                                <textarea id="product-long-description-en" name="long_description_en" rows="4" class="form-textarea-admin"></textarea>
+                            </div>
                         </div>
+
                         <div>
                             <label for="product-image-url-main" class="form-label-admin">URL Image Principale</label>
                             <input type="url" id="product-image-url-main" name="image_url_main" class="form-input-admin" placeholder="https://example.com/image.jpg">
@@ -75,31 +103,24 @@
                         </div>
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label for="product-species" class="form-label-admin">Espèce</label>
-                                <input type="text" id="product-species" name="species" class="form-input-admin">
-                            </div>
-                            <div>
-                                <label for="product-origin" class="form-label-admin">Origine</label>
-                                <input type="text" id="product-origin" name="origin" class="form-input-admin">
-                            </div>
-                            <div>
-                                <label for="product-seasonality" class="form-label-admin">Saisonnalité</label>
-                                <input type="text" id="product-seasonality" name="seasonality" class="form-input-admin">
-                            </div>
+                            <div><label for="product-species-fr" class="form-label-admin">Espèce (FR)</label><input type="text" id="product-species-fr" name="species_fr" class="form-input-admin"></div>
+                            <div><label for="product-species-en" class="form-label-admin">Species (EN)</label><input type="text" id="product-species-en" name="species_en" class="form-input-admin"></div>
+                            <div><label for="product-origin-fr" class="form-label-admin">Origine (FR)</label><input type="text" id="product-origin-fr" name="origin_fr" class="form-input-admin"></div>
+                            <div><label for="product-origin-en" class="form-label-admin">Origin (EN)</label><input type="text" id="product-origin-en" name="origin_en" class="form-input-admin"></div>
+                            <div><label for="product-seasonality-fr" class="form-label-admin">Saisonnalité (FR)</label><input type="text" id="product-seasonality-fr" name="seasonality_fr" class="form-input-admin"></div>
+                            <div><label for="product-seasonality-en" class="form-label-admin">Seasonality (EN)</label><input type="text" id="product-seasonality-en" name="seasonality_en" class="form-input-admin"></div>
                         </div>
-                        
-                        <div>
-                            <label for="product-ideal-uses" class="form-label-admin">Utilisations Idéales</label>
-                            <input type="text" id="product-ideal-uses" name="ideal_uses" class="form-input-admin">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div><label for="product-ideal-uses-fr" class="form-label-admin">Utilisations Idéales (FR)</label><input type="text" id="product-ideal-uses-fr" name="ideal_uses_fr" class="form-input-admin"></div>
+                            <div><label for="product-ideal-uses-en" class="form-label-admin">Ideal Uses (EN)</label><input type="text" id="product-ideal-uses-en" name="ideal_uses_en" class="form-input-admin"></div>
                         </div>
-                        <div>
-                            <label for="product-sensory-description" class="form-label-admin">Description Sensorielle</label>
-                            <textarea id="product-sensory-description" name="sensory_description" rows="3" class="form-textarea-admin"></textarea>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div><label for="product-sensory-description-fr" class="form-label-admin">Description Sensorielle (FR)</label><textarea id="product-sensory-description-fr" name="sensory_description_fr" rows="3" class="form-textarea-admin"></textarea></div>
+                            <div><label for="product-sensory-description-en" class="form-label-admin">Sensory Description (EN)</label><textarea id="product-sensory-description-en" name="sensory_description_en" rows="3" class="form-textarea-admin"></textarea></div>
                         </div>
-                        <div>
-                            <label for="product-pairing-suggestions" class="form-label-admin">Suggestions d'Accords</label>
-                            <textarea id="product-pairing-suggestions" name="pairing_suggestions" rows="3" class="form-textarea-admin"></textarea>
+                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div><label for="product-pairing-suggestions-fr" class="form-label-admin">Suggestions d'Accords (FR)</label><textarea id="product-pairing-suggestions-fr" name="pairing_suggestions_fr" rows="3" class="form-textarea-admin"></textarea></div>
+                            <div><label for="product-pairing-suggestions-en" class="form-label-admin">Pairing Suggestions (EN)</label><textarea id="product-pairing-suggestions-en" name="pairing_suggestions_en" rows="3" class="form-textarea-admin"></textarea></div>
                         </div>
 
                         <hr class="my-6 border-brand-warm-taupe/30">
@@ -120,7 +141,39 @@
                                 </div>
                             <button type="button" id="add-weight-option-button" class="btn-admin-secondary text-xs mt-2">Ajouter une Option de Poids</button>
                         </div>
-                        
+
+                        <hr class="my-6 border-brand-warm-taupe/30">
+                         <h3 class="text-lg font-semibold text-brand-near-black">Génération des Actifs (Passeport, QR, Étiquette)</h3>
+                        <div>
+                            <label for="product-numero-lot-manuel" class="form-label-admin">Numéro de Lot Manuel (pour actifs)</label>
+                            <input type="text" id="product-numero-lot-manuel" name="numero_lot_manuel" class="form-input-admin" placeholder="Ex: LOT2024-XYZ">
+                        </div>
+                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label for="product-date-conditionnement" class="form-label-admin">Date de Conditionnement (pour actifs)</label>
+                                <input type="date" id="product-date-conditionnement" name="date_conditionnement" class="form-input-admin">
+                            </div>
+                            <div>
+                                <label for="product-ddm" class="form-label-admin">DDM (Date de Durabilité Minimale - pour actifs)</label>
+                                <input type="date" id="product-ddm" name="ddm" class="form-input-admin">
+                            </div>
+                        </div>
+                        <div>
+                            <label for="product-specific-weight-for-label" class="form-label-admin">Poids Spécifique pour Étiquette (si différent des options)</label>
+                            <input type="text" id="product-specific-weight-for-label" name="specific_weight_for_label" class="form-input-admin" placeholder="Ex: 100g (pour huile, etc.)">
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label for="product-ingredients-for-label-fr" class="form-label-admin">Ingrédients Étiquette (FR)</label>
+                                <textarea id="product-ingredients-for-label-fr" name="ingredients_for_label_fr" rows="2" class="form-textarea-admin" placeholder="Ingrédients..."></textarea>
+                            </div>
+                            <div>
+                                <label for="product-ingredients-for-label-en" class="form-label-admin">Label Ingredients (EN)</label>
+                                <textarea id="product-ingredients-for-label-en" name="ingredients_for_label_en" rows="2" class="form-textarea-admin" placeholder="Ingredients..."></textarea>
+                            </div>
+                        </div>
+
+
                         <div class="flex items-center mt-4">
                             <input type="checkbox" id="product-is-published" name="is_published" class="form-checkbox-admin mr-2" checked>
                             <label for="product-is-published" class="text-sm text-brand-near-black">Publier ce produit sur la boutique</label>
@@ -130,7 +183,7 @@
                             <button type="button" id="cancel-product-form-button" class="btn-admin-secondary">Annuler</button>
                             <button type="submit" class="btn-admin-primary">Enregistrer Produit</button>
                         </div>
-                    </form>        
+                    </form>
                     <div id="product-assets-preview-section" class="mt-6 p-4 border-t border-brand-warm-taupe/30 rounded-md bg-brand-cream/50" style="display:none;">
                         <h4 class="text-md font-semibold text-brand-near-black mb-3">Aperçu des Actifs Générés :</h4>
                         <div id="product-assets-links" class="space-y-2 text-sm">
@@ -147,7 +200,8 @@
                         <thead>
                             <tr>
                                 <th scope="col">ID</th>
-                                <th scope="col">Nom</th>
+                                <th scope="col">Nom (FR)</th>
+                                <th scope="col">Nom (EN)</th>
                                 <th scope="col">Catégorie</th>
                                 <th scope="col">Prix Base / Variantes</th>
                                 <th scope="col">Stock Total</th>
@@ -156,7 +210,7 @@
                             </tr>
                         </thead>
                         <tbody id="products-table-body">
-                            <tr><td colspan="7" class="text-center py-4">Chargement des produits...</td></tr>
+                            <tr><td colspan="8" class="text-center py-4">Chargement des produits...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -164,17 +218,11 @@
         </main>
     </div>
     <div id="admin-toast-container"><div id="admin-message-toast"><p id="admin-message-text"></p></div></div>
-<script src="website/admin/admin_scripts.js"></script> ```
-with the following block, ensuring correct loading order:
-```html
-<script src="js/admin_config.js"></script>
-<script src="js/admin_ui.js"></script>
-<script src="js/admin_api.js"></script>
-<script src="js/admin_auth.js"></script>
-<script src="js/admin_dashboard.js"></script>
-<script src="js/admin_products.js"></script>
-<script src="js/admin_inventory.js"></script>
-<script src="js/admin_users.js"></script>
-<script src="js/admin_orders.js"></script>
-<script src="js/admin_main.js"></script></body>
+    <script src="js/admin_config.js"></script>
+    <script src="js/admin_ui.js"></script>
+    <script src="js/admin_api.js"></script>
+    <script src="js/admin_auth.js"></script>
+    <script src="js/admin_products.js"></script>
+    <script src="js/admin_main.js"></script>
+</body>
 </html>
