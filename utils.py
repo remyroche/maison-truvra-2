@@ -1,5 +1,6 @@
 # utils.py
 import datetime
+
 import os
 
 def format_date_french(date_iso_str, fmt="%d/%m/%Y"):
