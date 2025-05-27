@@ -1,1069 +1,966 @@
-from flask import Blueprint, request, jsonify, current_app, g
-from werkzeug.security import generate_password_hash, check_password_hash # For potential admin user management
+# backend/admin_api/routes.py
+from flask import Blueprint, request, jsonify, current_app, send_from_directory
 import sqlite3
 import os
 import json
-from datetime import datetime, date # Added date
-from functools import wraps
+from werkzeug.utils import secure_filename
+from ..database import get_db_connection, record_stock_movement
+from ..utils import jwt_required # Import the JWT decorator
+from ..audit_log_service import AuditLogService
+from ..services.asset_service import AssetService # Assuming this service exists
+from ..services.invoice_service import InvoiceService # Assuming this service exists
 
-# Assuming database.py is in the same directory or accessible via backend.database
-from backend.database import get_db_connection # Use the centralized get_db_connection
-# Services are accessed via current_app:
-# current_app.asset_service
-# current_app.invoice_service
-# current_app.audit_log_service
+admin_api_bp = Blueprint('admin_api', __name__, url_prefix='/api/admin')
+audit_logger = AuditLogService()
+asset_service = AssetService() 
+invoice_service = InvoiceService()
 
-admin_api_bp = Blueprint('admin_api_bp', __name__)
+# Helper to convert row to dict
+def row_to_dict(cursor, row):
+    return dict(zip([column[0] for column in cursor.description], row))
 
-# --- Decorators ---
-def admin_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        auth_header = request.headers.get('Authorization')
-        admin_user_id_from_token = None
-
-        if not auth_header or not auth_header.startswith('Bearer '):
-            return jsonify(message="Missing or invalid Authorization header"), 401
-        
-        token = auth_header.split(" ")[1]
-        
-        # In a real app, you'd verify a JWT token.
-        # For this example, we'll use a placeholder token logic.
-        # IMPORTANT: Replace this with actual JWT validation (e.g., using PyJWT)
-        if token == current_app.config.get('ADMIN_BEARER_TOKEN_PLACEHOLDER', 'admin_token_placeholder'): # Use a config value
-            # In a real JWT, the token itself would contain the user_id (sub claim)
-            # For this placeholder, we might assume a default admin ID or fetch based on the token if it were unique.
-            # Let's assume the placeholder token implies the first admin user.
-            try:
-                db_temp = get_db_connection() # Temporary connection to find an admin
-                admin_check_cursor = db_temp.execute("SELECT id FROM users WHERE is_admin = TRUE ORDER BY id ASC LIMIT 1")
-                first_admin = admin_check_cursor.fetchone()
-                if first_admin:
-                    admin_user_id_from_token = first_admin['id']
-                else: # No admin user found, this is a problem for the placeholder logic
-                    current_app.logger.error("Admin token placeholder used, but no admin user found in DB.")
-                    return jsonify(message="Admin user configuration error."), 500
-            except Exception as e_db_admin_check:
-                current_app.logger.error(f"Error fetching admin for token placeholder: {e_db_admin_check}")
-                return jsonify(message="Server error during admin check."), 500
-        else:
-            # Here you would decode and verify an actual JWT
-            # try:
-            #     decoded_token = jwt.decode(token, current_app.config['JWT_SECRET_KEY'], algorithms=["HS256"])
-            #     admin_user_id_from_token = decoded_token.get('sub') # 'sub' is standard for subject (user_id)
-            # except jwt.ExpiredSignatureError:
-            #     return jsonify(message="Token has expired"), 401
-            # except jwt.InvalidTokenError:
-            #     return jsonify(message="Invalid token"), 401
-            current_app.logger.warning(f"Invalid admin token received: {token}")
-            return jsonify(message="Invalid or expired admin token."), 401
-
-
-        if not admin_user_id_from_token:
-            return jsonify(message="Admin user ID not found in token or token invalid."), 401
-
-        db = get_db_connection()
-        cursor = db.execute("SELECT * FROM users WHERE id = ? AND is_admin = TRUE", (admin_user_id_from_token,))
-        admin_user = cursor.fetchone()
-
-        if not admin_user:
-            return jsonify(message="Admin privileges required or user not found."), 403
-        
-        g.admin_user = dict(admin_user) # Make admin user (as dict) available in request context
-        return f(*args, **kwargs)
-    return decorated_function
-
-# --- Helper Functions ---
-def get_json_or_abort(req):
-    req_data = req.get_json(silent=True)
-    if req_data is None:
-        # Try to parse form data if JSON is not present, for file uploads mixed with data
-        if req.form:
-            return req.form.to_dict() # Convert ImmutableMultiDict to dict
-        return None # Or raise an error: abort(400, description="Invalid JSON data in request")
-    return req_data
-
-# --- Product Management ---
-@admin_api_bp.route('/products', methods=['POST'])
-@admin_required
-def create_product():
-    # This endpoint might handle multipart/form-data if images are uploaded directly
-    # For now, assuming JSON data and image URLs are provided.
-    data = get_json_or_abort(request)
-    if data is None:
-        return jsonify(message="Invalid data in request. Expecting JSON or form-data."), 400
-
-    db = get_db_connection()
-    cursor = db.cursor()
-    admin_user = g.admin_user
-
+# --- Dashboard ---
+@admin_api_bp.route('/dashboard/stats', methods=['GET'])
+@jwt_required # Protect this route
+def get_dashboard_stats():
+    # TODO: Implement actual stats fetching
+    # For now, returning placeholders as in the original JS
+    # This should query orders, users, products, reviews tables
     try:
-        required_fields = ['name_fr', 'name_en', 'category_id', 'sku', 'base_price', 'slug']
-        for field in required_fields:
-            if field not in data or not data[field]:
-                return jsonify(message=f"Missing required field: {field}"), 400
+        conn = get_db_connection()
+        cursor = conn.cursor()
 
-        cursor.execute("SELECT id FROM products WHERE sku = ?", (data['sku'],))
-        if cursor.fetchone():
-            return jsonify(message=f"Product with SKU {data['sku']} already exists."), 409
-        cursor.execute("SELECT id FROM products WHERE slug = ?", (data['slug'],))
-        if cursor.fetchone():
-            return jsonify(message=f"Product with slug {data['slug']} already exists."), 409
+        cursor.execute("SELECT COUNT(*) FROM users WHERE role = 'b2c' OR role = 'professional'")
+        total_users = cursor.fetchone()[0]
 
-        additional_image_urls_json = json.dumps(data.get('additional_image_urls', []))
-
-        cursor.execute('''
-            INSERT INTO products (name_fr, name_en, description_fr, description_en, category_id, sku, 
-                                  base_price, currency, main_image_url, additional_image_urls, tags, 
-                                  is_active, is_featured, meta_title_fr, meta_title_en, 
-                                  meta_description_fr, meta_description_en, slug, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (data['name_fr'], data['name_en'], data.get('description_fr'), data.get('description_en'),
-              data['category_id'], data['sku'], float(data['base_price']), data.get('currency', 'EUR'),
-              data.get('main_image_url'), additional_image_urls_json, data.get('tags'),
-              data.get('is_active', True) if isinstance(data.get('is_active'), bool) else (str(data.get('is_active')).lower() == 'true'), 
-              data.get('is_featured', False) if isinstance(data.get('is_featured'), bool) else (str(data.get('is_featured')).lower() == 'true'),
-              data.get('meta_title_fr'), data.get('meta_title_en'),
-              data.get('meta_description_fr'), data.get('meta_description_en'), data['slug'], datetime.utcnow()))
-        product_id = cursor.lastrowid
-
-        variants_data = json.loads(data.get('variants', '[]')) if isinstance(data.get('variants'), str) else data.get('variants', [])
-        created_variants_info = []
-
-        for variant_data in variants_data:
-            variant_sku = variant_data.get('sku')
-            if not variant_sku: 
-                variant_sku = f"{data['sku']}-V{len(created_variants_info)+1}"
-            
-            cursor.execute("SELECT id FROM product_variants WHERE sku = ?", (variant_sku,))
-            if cursor.fetchone():
-                current_app.logger.warning(f"Variant with SKU {variant_sku} already exists. Skipping for product {product_id}.")
-                continue
-
-            cursor.execute('''
-                INSERT INTO product_variants (product_id, sku, name_fr, name_en, price_modifier, stock_quantity, weight_grams, dimensions, image_url, is_active, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (product_id, variant_sku, variant_data.get('name_fr'), variant_data.get('name_en'),
-                  float(variant_data.get('price_modifier', 0)), int(variant_data.get('stock_quantity', 0)),
-                  int(variant_data.get('weight_grams', 0)), json.dumps(variant_data.get('dimensions')), 
-                  variant_data.get('image_url'), 
-                  variant_data.get('is_active', True) if isinstance(variant_data.get('is_active'), bool) else (str(variant_data.get('is_active')).lower() == 'true'),
-                  datetime.utcnow()))
-            variant_id = cursor.lastrowid
-            created_variants_info.append({'id': variant_id, 'sku': variant_sku, 'name_fr': variant_data.get('name_fr')})
-
-            if int(variant_data.get('stock_quantity', 0)) > 0:
-                 cursor.execute('''
-                    INSERT INTO inventory_movements (product_variant_id, change_quantity, reason, notes)
-                    VALUES (?, ?, ?, ?)
-                 ''', (variant_id, int(variant_data.get('stock_quantity')), 'initial_stock', 'Product creation'))
-
-        product_for_assets = {**data, "id": product_id} 
-        qr_code_url, label_url, passport_url = None, None, None
-        try:
-            asset_service = current_app.asset_service
-            qr_code_url = asset_service.generate_qr_code(product_id, data['slug'])
-            
-            primary_variant_for_assets_data = created_variants_info[0] if created_variants_info else None
-            
-            label_url = asset_service.generate_product_label(product_for_assets, primary_variant_for_assets_data)
-            passport_url = asset_service.generate_product_passport(product_for_assets, primary_variant_for_assets_data)
-
-            cursor.execute('''
-                UPDATE products SET qr_code_url = ?, label_url = ?, product_passport_url = ?
-                WHERE id = ?
-            ''', (qr_code_url, label_url, passport_url, product_id))
-        except Exception as e_asset:
-            current_app.logger.error(f"Error generating assets for product {product_id}: {e_asset}")
-
-        db.commit()
-        current_app.audit_log_service.log_action(
-            action='product_created', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='product', target_id=product_id,
-            details={'name': data['name_fr'], 'sku': data['sku'], 'variants_count': len(created_variants_info)}, success=True)
-        return jsonify(message="Product created successfully", product_id=product_id, 
-                       qr_code_url=qr_code_url, label_url=label_url, product_passport_url=passport_url,
-                       variants=created_variants_info), 201
-    except sqlite3.IntegrityError as e:
-        db.rollback()
-        current_app.logger.error(f"Database integrity error creating product: {e}")
-        if "UNIQUE constraint failed: products.sku" in str(e): return jsonify(message=f"Product with SKU {data.get('sku')} already exists."), 409
-        if "UNIQUE constraint failed: products.slug" in str(e): return jsonify(message=f"Product with slug {data.get('slug')} already exists."), 409
-        return jsonify(message=f"Database integrity error: {e}"), 409
-    except Exception as e:
-        db.rollback()
-        current_app.logger.error(f"Error creating product: {e}")
-        current_app.audit_log_service.log_action(
-            action='product_create_failed', user_id=admin_user['id'], username=admin_user['email'],
-            details={'error': str(e), 'data': data if isinstance(data, dict) else str(data)}, success=False)
-        return jsonify(message=f"An error occurred: {str(e)}"), 500
-
-@admin_api_bp.route('/products/<int:product_id>', methods=['PUT'])
-@admin_required
-def update_product(product_id):
-    data = get_json_or_abort(request)
-    if data is None:
-        return jsonify(message="Invalid data in request. Expecting JSON or form-data."), 400
+        cursor.execute("SELECT COUNT(*) FROM products")
+        total_products = cursor.fetchone()[0]
         
-    db = get_db_connection()
-    cursor = db.cursor()
-    admin_user = g.admin_user
+        # Assuming 'orders' table exists with 'order_date' and 'total_amount'
+        cursor.execute("SELECT COUNT(*) FROM orders WHERE date(order_date) = date('now')")
+        orders_today = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT SUM(total_amount) FROM orders WHERE date(order_date) = date('now')")
+        revenue_today_row = cursor.fetchone()
+        revenue_today = revenue_today_row[0] if revenue_today_row and revenue_today_row[0] is not None else 0.0
 
+
+        # Recent Orders (Example: last 5)
+        cursor.execute("""
+            SELECT o.id, u.email as user_email, o.order_date, o.total_amount, o.status 
+            FROM orders o
+            JOIN users u ON o.user_id = u.id
+            ORDER BY o.order_date DESC LIMIT 5
+        """)
+        recent_orders_rows = cursor.fetchall()
+        recent_orders = [row_to_dict(cursor, r) for r in recent_orders_rows]
+
+        # Recent Reviews (Example: last 5, assuming 'reviews' table)
+        # ALTER TABLE reviews ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+        cursor.execute("""
+            SELECT r.id, u.email as user_email, p.name_fr as product_name, r.rating, r.comment, r.created_at 
+            FROM reviews r
+            JOIN users u ON r.user_id = u.id
+            JOIN products p ON r.product_id = p.id
+            ORDER BY r.created_at DESC LIMIT 5
+        """)
+        recent_reviews_rows = cursor.fetchall()
+        recent_reviews = [row_to_dict(cursor, r) for r in recent_reviews_rows]
+        
+        conn.close()
+
+        stats = {
+            "totalUsers": total_users,
+            "totalProducts": total_products,
+            "ordersToday": orders_today,
+            "revenueToday": revenue_today,
+            "recentOrders": recent_orders,
+            "recentReviews": recent_reviews 
+        }
+        return jsonify(stats), 200
+    except sqlite3.Error as e:
+        current_app.logger.error(f"Database error fetching dashboard stats: {e}")
+        return jsonify({"message": "Failed to fetch dashboard stats", "error": str(e)}), 500
+    except Exception as e:
+        current_app.logger.error(f"Error fetching dashboard stats: {e}")
+        return jsonify({"message": "An unexpected error occurred", "error": str(e)}), 500
+
+
+# --- Categories ---
+@admin_api_bp.route('/categories', methods=['GET'])
+@jwt_required
+def get_categories():
     try:
-        cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,))
-        product = cursor.fetchone()
-        if not product:
-            return jsonify(message="Product not found"), 404
-        product = dict(product) # Convert to dict for easier access
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, name_fr, name_en, description_fr, description_en, image_url FROM categories ORDER BY name_fr")
+        categories_rows = cursor.fetchall()
+        categories = [row_to_dict(cursor, r) for r in categories_rows]
+        conn.close()
+        return jsonify(categories), 200
+    except sqlite3.Error as e:
+        current_app.logger.error(f"Database error fetching categories: {e}")
+        return jsonify({"message": "Failed to fetch categories", "error": str(e)}), 500
 
-        if 'sku' in data and data['sku'] != product['sku']:
-            cursor.execute("SELECT id FROM products WHERE sku = ? AND id != ?", (data['sku'], product_id))
-            if cursor.fetchone(): return jsonify(message=f"Another product with SKU {data['sku']} already exists."), 409
-        if 'slug' in data and data['slug'] != product['slug']:
-            cursor.execute("SELECT id FROM products WHERE slug = ? AND id != ?", (data['slug'], product_id))
-            if cursor.fetchone(): return jsonify(message=f"Another product with slug {data['slug']} already exists."), 409
-
-        update_fields = []
-        update_values = []
-        allowed_fields = ['name_fr', 'name_en', 'description_fr', 'description_en', 'category_id', 'sku', 
-                          'base_price', 'currency', 'main_image_url', 'tags', 'is_active', 'is_featured', 
-                          'meta_title_fr', 'meta_title_en', 'meta_description_fr', 'meta_description_en', 'slug']
-        
-        for field in allowed_fields:
-            if field in data:
-                update_fields.append(f"{field} = ?")
-                value = data[field]
-                if field in ['is_active', 'is_featured']:
-                    value = value if isinstance(value, bool) else (str(value).lower() == 'true')
-                elif field == 'base_price':
-                    value = float(value)
-                elif field == 'category_id':
-                    value = int(value)
-                update_values.append(value)
-        
-        if 'additional_image_urls' in data:
-            update_fields.append("additional_image_urls = ?")
-            update_values.append(json.dumps(data.get('additional_image_urls', [])))
-
-        if update_fields:
-            update_fields.append("updated_at = ?")
-            update_values.append(datetime.utcnow())
-            update_values.append(product_id)
-            sql_update_product = f"UPDATE products SET {', '.join(update_fields)} WHERE id = ?"
-            cursor.execute(sql_update_product, tuple(update_values))
-
-        updated_variants_info = []
-        raw_variants_data = data.get('variants')
-        if raw_variants_data:
-            variants_data_list = json.loads(raw_variants_data) if isinstance(raw_variants_data, str) else raw_variants_data
-
-            cursor.execute("SELECT * FROM product_variants WHERE product_id = ?", (product_id,))
-            existing_variants_db = {v['sku']: dict(v) for v in cursor.fetchall()}
-            requested_variant_skus = set()
-
-            for variant_data in variants_data_list:
-                variant_sku = variant_data.get('sku')
-                if not variant_sku: continue
-                requested_variant_skus.add(variant_sku)
-
-                variant_update_fields_list = []
-                variant_update_values_list = []
-                variant_allowed_fields = ['name_fr', 'name_en', 'price_modifier', 'stock_quantity', 
-                                          'weight_grams', 'dimensions', 'image_url', 'is_active']
-
-                for field in variant_allowed_fields:
-                    if field in variant_data:
-                        variant_update_fields_list.append(f"{field} = ?")
-                        value = variant_data[field]
-                        if field == 'dimensions': value = json.dumps(value)
-                        elif field in ['price_modifier']: value = float(value)
-                        elif field in ['stock_quantity', 'weight_grams']: value = int(value)
-                        elif field == 'is_active': value = value if isinstance(value, bool) else (str(value).lower() == 'true')
-                        variant_update_values_list.append(value)
-                
-                if variant_sku in existing_variants_db:
-                    if variant_update_fields_list:
-                        variant_update_fields_list.append("updated_at = ?")
-                        variant_update_values_list.append(datetime.utcnow())
-                        variant_update_values_list.append(existing_variants_db[variant_sku]['id'])
-                        sql_update_variant = f"UPDATE product_variants SET {', '.join(variant_update_fields_list)} WHERE id = ?"
-                        cursor.execute(sql_update_variant, tuple(variant_update_values_list))
-                        updated_variants_info.append({'id': existing_variants_db[variant_sku]['id'], 'sku': variant_sku, 'status': 'updated'})
-                else:
-                    cursor.execute('''
-                        INSERT INTO product_variants (product_id, sku, name_fr, name_en, price_modifier, stock_quantity, weight_grams, dimensions, image_url, is_active, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (product_id, variant_sku, variant_data.get('name_fr'), variant_data.get('name_en'),
-                          float(variant_data.get('price_modifier', 0)), int(variant_data.get('stock_quantity', 0)),
-                          int(variant_data.get('weight_grams',0)), json.dumps(variant_data.get('dimensions')),
-                          variant_data.get('image_url'), 
-                          variant_data.get('is_active', True) if isinstance(variant_data.get('is_active'), bool) else (str(variant_data.get('is_active')).lower() == 'true'),
-                          datetime.utcnow()))
-                    new_variant_id = cursor.lastrowid
-                    updated_variants_info.append({'id': new_variant_id, 'sku': variant_sku, 'status': 'created'})
-                
-                if 'stock_quantity' in variant_data:
-                    new_stock = int(variant_data['stock_quantity'])
-                    variant_db_id = existing_variants_db[variant_sku]['id'] if variant_sku in existing_variants_db else new_variant_id
-                    
-                    # Get current stock for this variant to calculate change
-                    stock_check_cursor = db.cursor()
-                    stock_check_cursor.execute("SELECT stock_quantity FROM product_variants WHERE id = ?", (variant_db_id,))
-                    current_variant_stock_row = stock_check_cursor.fetchone()
-                    current_stock_val = current_variant_stock_row['stock_quantity'] if current_variant_stock_row else 0
-                    
-                    stock_change = new_stock - current_stock_val
-                    if stock_change != 0:
-                        cursor.execute('''
-                            INSERT INTO inventory_movements (product_variant_id, change_quantity, reason, notes)
-                            VALUES (?, ?, ?, ?)
-                        ''', (variant_db_id, stock_change, 'admin_update', f'Stock changed from {current_stock_val} to {new_stock}'))
-                    # The variant's stock_quantity is already updated by the main variant update logic if 'stock_quantity' was in variant_data
-
-            variants_to_delete_skus = set(existing_variants_db.keys()) - requested_variant_skus
-            for sku_to_delete in variants_to_delete_skus:
-                variant_to_delete_id = existing_variants_db[sku_to_delete]['id']
-                cursor.execute("DELETE FROM product_variants WHERE id = ?", (variant_to_delete_id,))
-                cursor.execute("DELETE FROM inventory_movements WHERE product_variant_id = ?", (variant_to_delete_id,))
-                updated_variants_info.append({'sku': sku_to_delete, 'status': 'deleted'})
-
-        cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,)) # Re-fetch product for asset generation
-        updated_product_data_for_assets = dict(cursor.fetchone())
-        qr_code_url, label_url, passport_url = product['qr_code_url'], product['label_url'], product['product_passport_url']
-        assets_changed = False
-
-        if 'slug' in data and data['slug'] != product['slug']:
-            try:
-                qr_code_url = current_app.asset_service.generate_qr_code(product_id, data['slug'])
-                assets_changed = True
-            except Exception as e_asset: current_app.logger.error(f"Error re-generating QR for product {product_id}: {e_asset}")
-
-        if ('name_fr' in data and data['name_fr'] != product['name_fr']) or not label_url or not passport_url : # Regenerate if name changes or assets missing
-            try:
-                cursor.execute("SELECT * FROM product_variants WHERE product_id = ? ORDER BY id ASC LIMIT 1", (product_id,))
-                first_variant_after_update = cursor.fetchone()
-                label_url = current_app.asset_service.generate_product_label(updated_product_data_for_assets, dict(first_variant_after_update) if first_variant_after_update else None)
-                passport_url = current_app.asset_service.generate_product_passport(updated_product_data_for_assets, dict(first_variant_after_update) if first_variant_after_update else None)
-                assets_changed = True
-            except Exception as e_asset: current_app.logger.error(f"Error re-generating label/passport for product {product_id}: {e_asset}")
-        
-        if assets_changed:
-            cursor.execute('''
-                UPDATE products SET qr_code_url = ?, label_url = ?, product_passport_url = ?, updated_at = ?
-                WHERE id = ?
-            ''', (qr_code_url, label_url, passport_url, datetime.utcnow(), product_id))
-
-        db.commit()
-        current_app.audit_log_service.log_action(
-            action='product_updated', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='product', target_id=product_id,
-            details={'updated_fields': list(data.keys()), 'variants_status': updated_variants_info}, success=True)
-        return jsonify(message="Product updated successfully", product_id=product_id, 
-                       qr_code_url=qr_code_url, label_url=label_url, product_passport_url=passport_url,
-                       variants_status=updated_variants_info), 200
-    except sqlite3.IntegrityError as e:
-        db.rollback()
-        current_app.logger.error(f"DB integrity error updating product {product_id}: {e}")
-        return jsonify(message=f"Database integrity error: {e}"), 409
-    except Exception as e:
-        db.rollback()
-        current_app.logger.error(f"Error updating product {product_id}: {e}")
-        current_app.audit_log_service.log_action(
-            action='product_update_failed', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='product', target_id=product_id,
-            details={'error': str(e), 'data': data if isinstance(data, dict) else str(data)}, success=False)
-        return jsonify(message=f"An error occurred: {str(e)}"), 500
-
-@admin_api_bp.route('/products/<int:product_id>', methods=['DELETE'])
-@admin_required
-def delete_product(product_id):
-    db = get_db_connection()
-    cursor = db.cursor()
-    admin_user = g.admin_user
-    try:
-        cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,))
-        product = cursor.fetchone()
-        if not product:
-            return jsonify(message="Product not found"), 404
-
-        # Optionally, delete associated assets from filesystem (QR, label, passport)
-        # asset_service = current_app.asset_service
-        # if product['qr_code_url']: asset_service.delete_asset_file(product['qr_code_url'])
-        # ... and so on for label and passport. AssetService would need a delete_asset_file method.
-
-        cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
-        # Variants and inventory movements should be deleted via CASCADE if set up in DB schema,
-        # otherwise, delete them manually here.
-        # Assuming CASCADE for product_variants -> inventory_movements
-        # And products -> product_variants
-        # If not, add:
-        # cursor.execute("DELETE FROM product_variants WHERE product_id = ?", (product_id,))
-        # cursor.execute("DELETE FROM inventory_movements WHERE product_variant_id IN (SELECT id FROM product_variants WHERE product_id = ?)", (product_id,))
-        
-        db.commit()
-        current_app.audit_log_service.log_action(
-            action='product_deleted', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='product', target_id=product_id,
-            details={'name': product['name_fr'], 'sku': product['sku']}, success=True)
-        return jsonify(message="Product deleted successfully"), 200
-    except Exception as e:
-        db.rollback()
-        current_app.logger.error(f"Error deleting product {product_id}: {e}")
-        current_app.audit_log_service.log_action(
-            action='product_delete_failed', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='product', target_id=product_id, details={'error': str(e)}, success=False)
-        return jsonify(message=f"An error occurred: {str(e)}"), 500
-
-@admin_api_bp.route('/products', methods=['GET'])
-@admin_required
-def get_all_products_admin():
-    db = get_db_connection()
-    cursor = db.execute("""
-        SELECT p.*, c.name_fr as category_name_fr, c.name_en as category_name_en 
-        FROM products p 
-        LEFT JOIN categories c ON p.category_id = c.id 
-        ORDER BY p.created_at DESC
-    """)
-    products = [dict(row) for row in cursor.fetchall()]
-    
-    for product in products:
-        variant_cursor = db.execute("SELECT * FROM product_variants WHERE product_id = ? ORDER BY id ASC", (product['id'],))
-        variants = [dict(v_row) for v_row in variant_cursor.fetchall()]
-        product['variants'] = variants
-        if product.get('additional_image_urls'):
-            try: product['additional_image_urls'] = json.loads(product['additional_image_urls'])
-            except json.JSONDecodeError: product['additional_image_urls'] = []
-    return jsonify(products), 200
-
-@admin_api_bp.route('/products/<int:product_id>', methods=['GET'])
-@admin_required
-def get_product_admin(product_id):
-    db = get_db_connection()
-    cursor = db.execute("""
-        SELECT p.*, c.name_fr as category_name_fr, c.name_en as category_name_en 
-        FROM products p 
-        LEFT JOIN categories c ON p.category_id = c.id 
-        WHERE p.id = ?
-    """, (product_id,))
-    product = cursor.fetchone()
-    if not product:
-        return jsonify(message="Product not found"), 404
-    
-    product_dict = dict(product)
-    variant_cursor = db.execute("SELECT * FROM product_variants WHERE product_id = ? ORDER BY id ASC", (product_id,))
-    variants = [dict(v_row) for v_row in variant_cursor.fetchall()]
-    product_dict['variants'] = variants
-    if product_dict.get('additional_image_urls'):
-        try: product_dict['additional_image_urls'] = json.loads(product_dict['additional_image_urls'])
-        except json.JSONDecodeError: product_dict['additional_image_urls'] = []
-    return jsonify(product_dict), 200
-
-
-# --- Category Management ---
 @admin_api_bp.route('/categories', methods=['POST'])
-@admin_required
+@jwt_required
 def create_category():
-    data = get_json_or_abort(request)
-    if data is None: return jsonify(message="Invalid JSON data"), 400
-    db = get_db_connection()
-    cursor = db.cursor()
-    admin_user = g.admin_user
-    try:
-        required = ['name_fr', 'name_en', 'slug']
-        if not all(f in data and data[f] for f in required):
-            return jsonify(message=f"Missing required fields: {', '.join(required)}"), 400
-        
-        cursor.execute("SELECT id FROM categories WHERE slug = ?", (data['slug'],))
-        if cursor.fetchone(): return jsonify(message=f"Category with slug {data['slug']} already exists."), 409
+    data = request.form.to_dict()
+    image_file = request.files.get('image_file')
+    
+    required_fields = ['name_fr', 'name_en']
+    if not all(field in data for field in required_fields):
+        return jsonify({"message": "Missing required fields (name_fr, name_en)"}), 400
 
-        cursor.execute('''
-            INSERT INTO categories (name_fr, name_en, description_fr, description_en, slug, image_url, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (data['name_fr'], data['name_en'], data.get('description_fr'), data.get('description_en'), 
-              data['slug'], data.get('image_url'), datetime.utcnow()))
+    image_url = None
+    if image_file:
+        if not os.path.exists(current_app.config['ASSET_STORAGE_PATH']):
+            os.makedirs(current_app.config['ASSET_STORAGE_PATH'])
+        filename = secure_filename(image_file.filename)
+        # Consider adding a unique prefix to filename to avoid collisions
+        image_path = os.path.join(current_app.config['ASSET_STORAGE_PATH'], 'category_images', filename)
+        os.makedirs(os.path.dirname(image_path), exist_ok=True)
+        image_file.save(image_path)
+        image_url = f"/assets_generated/category_images/{filename}" # URL path to serve the image
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO categories (name_fr, name_en, description_fr, description_en, image_url)
+            VALUES (?, ?, ?, ?, ?)
+        """, (data['name_fr'], data['name_en'], data.get('description_fr'), data.get('description_en'), image_url))
+        conn.commit()
         category_id = cursor.lastrowid
-        db.commit()
-        current_app.audit_log_service.log_action(
-            action='category_created', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='category', target_id=category_id, details={'name': data['name_fr'], 'slug': data['slug']}, success=True)
-        return jsonify(message="Category created successfully", category_id=category_id), 201
-    except sqlite3.IntegrityError as e:
-        db.rollback()
-        return jsonify(message=f"Database integrity error: {e}"), 409
-    except Exception as e:
-        db.rollback()
-        current_app.logger.error(f"Error creating category: {e}")
-        current_app.audit_log_service.log_action(
-            action='category_create_failed', user_id=admin_user['id'], username=admin_user['email'],
-            details={'error': str(e), 'data': data}, success=False)
-        return jsonify(message=f"An error occurred: {str(e)}"), 500
+        conn.close()
+        audit_logger.log_event('category_created', details={'category_id': category_id, 'name_fr': data['name_fr']})
+        return jsonify({"message": "Category created successfully", "category_id": category_id, "image_url": image_url}), 201
+    except sqlite3.IntegrityError: # e.g. unique constraint on name
+        return jsonify({"message": "Category name might already exist or other integrity constraint failed."}), 409
+    except sqlite3.Error as e:
+        current_app.logger.error(f"Database error creating category: {e}")
+        return jsonify({"message": "Failed to create category", "error": str(e)}), 500
 
 @admin_api_bp.route('/categories/<int:category_id>', methods=['PUT'])
-@admin_required
+@jwt_required
 def update_category(category_id):
-    data = get_json_or_abort(request)
-    if data is None: return jsonify(message="Invalid JSON data"), 400
-    db = get_db_connection()
-    cursor = db.cursor()
-    admin_user = g.admin_user
+    data = request.form.to_dict()
+    image_file = request.files.get('image_file')
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT image_url FROM categories WHERE id = ?", (category_id,))
+    category = cursor.fetchone()
+    if not category:
+        conn.close()
+        return jsonify({"message": "Category not found"}), 404
+
+    image_url = category['image_url'] # Keep old image if new one not provided
+    if image_file:
+        # Optionally, delete old image file from server
+        if image_url:
+            old_image_path = os.path.join(current_app.root_path, '..', image_url.lstrip('/')) # Adjust path as needed
+            if os.path.exists(old_image_path):
+                try:
+                    os.remove(old_image_path)
+                except OSError as e:
+                    current_app.logger.error(f"Error deleting old category image {old_image_path}: {e}")
+
+        filename = secure_filename(image_file.filename)
+        image_path = os.path.join(current_app.config['ASSET_STORAGE_PATH'], 'category_images', filename)
+        os.makedirs(os.path.dirname(image_path), exist_ok=True)
+        image_file.save(image_path)
+        image_url = f"/assets_generated/category_images/{filename}"
+
     try:
-        cursor.execute("SELECT * FROM categories WHERE id = ?", (category_id,))
-        category = cursor.fetchone()
-        if not category: return jsonify(message="Category not found"), 404
+        cursor.execute("""
+            UPDATE categories SET name_fr = ?, name_en = ?, description_fr = ?, description_en = ?, image_url = ?
+            WHERE id = ?
+        """, (data.get('name_fr'), data.get('name_en'), data.get('description_fr'), data.get('description_en'), image_url, category_id))
+        conn.commit()
+        conn.close()
+        audit_logger.log_event('category_updated', details={'category_id': category_id, 'name_fr': data.get('name_fr')})
+        return jsonify({"message": "Category updated successfully", "image_url": image_url}), 200
+    except sqlite3.Error as e:
+        conn.close()
+        current_app.logger.error(f"Database error updating category {category_id}: {e}")
+        return jsonify({"message": "Failed to update category", "error": str(e)}), 500
 
-        if 'slug' in data and data['slug'] != category['slug']:
-            cursor.execute("SELECT id FROM categories WHERE slug = ? AND id != ?", (data['slug'], category_id))
-            if cursor.fetchone(): return jsonify(message=f"Another category with slug {data['slug']} already exists."), 409
-        
-        update_fields_cat = []
-        update_values_cat = []
-        allowed_cat_fields = ['name_fr', 'name_en', 'description_fr', 'description_en', 'slug', 'image_url']
-        for field in allowed_cat_fields:
-            if field in data:
-                update_fields_cat.append(f"{field} = ?")
-                update_values_cat.append(data[field])
-        
-        if not update_fields_cat: return jsonify(message="No fields provided for category update."), 400
-
-        update_fields_cat.append("updated_at = ?")
-        update_values_cat.append(datetime.utcnow())
-        update_values_cat.append(category_id)
-        sql_update_cat = f"UPDATE categories SET {', '.join(update_fields_cat)} WHERE id = ?"
-        cursor.execute(sql_update_cat, tuple(update_values_cat))
-        db.commit()
-        current_app.audit_log_service.log_action(
-            action='category_updated', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='category', target_id=category_id, details={'updated_fields': list(data.keys())}, success=True)
-        return jsonify(message="Category updated successfully"), 200
-    except sqlite3.IntegrityError as e:
-        db.rollback()
-        return jsonify(message=f"Database integrity error: {e}"), 409
-    except Exception as e:
-        db.rollback()
-        current_app.logger.error(f"Error updating category {category_id}: {e}")
-        current_app.audit_log_service.log_action(
-            action='category_update_failed', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='category', target_id=category_id, details={'error': str(e), 'data': data}, success=False)
-        return jsonify(message=f"An error occurred: {str(e)}"), 500
 
 @admin_api_bp.route('/categories/<int:category_id>', methods=['DELETE'])
-@admin_required
+@jwt_required
 def delete_category(category_id):
-    db = get_db_connection()
-    cursor = db.cursor()
-    admin_user = g.admin_user
-    try:
-        cursor.execute("SELECT * FROM categories WHERE id = ?", (category_id,))
-        category = cursor.fetchone()
-        if not category: return jsonify(message="Category not found"), 404
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    # Check if category is used by products
+    cursor.execute("SELECT COUNT(*) FROM products WHERE category_id = ?", (category_id,))
+    product_count = cursor.fetchone()[0]
+    if product_count > 0:
+        conn.close()
+        return jsonify({"message": f"Cannot delete category: it is associated with {product_count} product(s). Please reassign or delete them first."}), 409
 
-        # Check if any products are associated with this category
-        cursor.execute("SELECT COUNT(*) as count FROM products WHERE category_id = ?", (category_id,))
-        if cursor.fetchone()['count'] > 0:
-            return jsonify(message="Cannot delete category: products are associated with it. Reassign products first."), 409
-            
+    cursor.execute("SELECT image_url FROM categories WHERE id = ?", (category_id,))
+    category = cursor.fetchone()
+
+    try:
         cursor.execute("DELETE FROM categories WHERE id = ?", (category_id,))
-        db.commit()
-        current_app.audit_log_service.log_action(
-            action='category_deleted', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='category', target_id=category_id, details={'name': category['name_fr']}, success=True)
-        return jsonify(message="Category deleted successfully"), 200
-    except Exception as e:
-        db.rollback()
-        current_app.logger.error(f"Error deleting category {category_id}: {e}")
-        current_app.audit_log_service.log_action(
-            action='category_delete_failed', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='category', target_id=category_id, details={'error': str(e)}, success=False)
-        return jsonify(message=f"An error occurred: {str(e)}"), 500
-
-@admin_api_bp.route('/categories', methods=['GET'])
-@admin_required # Or make public if needed for frontend selectors
-def get_all_categories_admin():
-    db = get_db_connection()
-    cursor = db.execute("SELECT * FROM categories ORDER BY name_fr ASC")
-    categories = [dict(row) for row in cursor.fetchall()]
-    return jsonify(categories), 200
+        conn.commit()
+        
+        if category and category['image_url']: # Delete image file
+            image_path = os.path.join(current_app.root_path, '..', category['image_url'].lstrip('/'))
+            if os.path.exists(image_path):
+                try:
+                    os.remove(image_path)
+                except OSError as e:
+                    current_app.logger.error(f"Error deleting category image {image_path}: {e}")
+        
+        conn.close()
+        audit_logger.log_event('category_deleted', details={'category_id': category_id})
+        return jsonify({"message": "Category deleted successfully"}), 200
+    except sqlite3.Error as e:
+        conn.close()
+        current_app.logger.error(f"Database error deleting category {category_id}: {e}")
+        return jsonify({"message": "Failed to delete category", "error": str(e)}), 500
 
 
-# --- B2B Invoice Generation ---
-@admin_api_bp.route('/invoices/professional/generate', methods=['POST'])
-@admin_required
-def generate_professional_invoice_admin():
-    data = get_json_or_abort(request)
-    if data is None: return jsonify({"message": "Invalid JSON data"}), 400
-    admin_user = g.admin_user
-
-    invoice_id_from_request = data.get("invoice_id_display") # e.g., "PROV-2024-001" - this is the human-readable ID
-    professional_user_id = data.get("professional_user_id")
-
-    if not invoice_id_from_request or not professional_user_id:
-        return jsonify({"message": "Missing invoice_id_display or professional_user_id"}), 400
-
-    db = get_db_connection()
-    cursor = db.cursor()
+# --- Products ---
+@admin_api_bp.route('/products', methods=['GET'])
+@jwt_required
+def get_products():
+    # Add pagination and filtering if needed
+    category_id_filter = request.args.get('category_id')
     try:
-        cursor.execute("SELECT * FROM users WHERE id = ? AND is_professional = TRUE", (professional_user_id,))
-        prof_user = cursor.fetchone()
-        if not prof_user: return jsonify({"message": "Professional user not found"}), 404
-        prof_user = dict(prof_user)
-
-        invoice_items_from_request = data.get("items", [])
-        if not invoice_items_from_request: return jsonify({"message": "Invoice items are required"}), 400
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        query = """
+            SELECT p.id, p.name_fr, p.name_en, p.description_fr, p.description_en, 
+                   p.base_price, p.category_id, c.name_fr as category_name_fr, 
+                   p.image_url, p.stock_quantity, p.is_active, p.product_type,
+                   p.qr_code_path, p.label_path, p.passport_html_path
+            FROM products p
+            LEFT JOIN categories c ON p.category_id = c.id
+        """
+        params = []
+        if category_id_filter:
+            query += " WHERE p.category_id = ?"
+            params.append(category_id_filter)
         
-        subtotal = sum(float(item.get('quantity', 0)) * float(item.get('unit_price', 0)) for item in invoice_items_from_request)
-        vat_rate = float(data.get('vat_rate', 0.20))
-        vat_amount = subtotal * vat_rate
-        total_amount = subtotal + vat_amount
+        query += " ORDER BY p.name_fr"
 
-        billing_address_obj = json.loads(prof_user.get('billing_address') or '{}')
-        billing_address_str = ", ".join(filter(None, [
-            billing_address_obj.get('street'),
-            billing_address_obj.get('city'),
-            billing_address_obj.get('postal_code'),
-            billing_address_obj.get('country')
-        ])) or "N/A"
-
-
-        invoice_data_for_service = {
-            "invoice_id": invoice_id_from_request, 
-            "professional_user_id": professional_user_id,
-            "issue_date": data.get("issue_date", date.today().strftime('%Y-%m-%d')),
-            "due_date": data.get("due_date"),
-            "client_details": {
-                "company_name": prof_user['company_name'],
-                "vat_number": prof_user['vat_number'],
-                "billing_address": billing_address_str,
-                "email": prof_user['email'], # Added email
-                "phone": prof_user.get('phone_number', 'N/A') # Added phone
-            },
-            "items": invoice_items_from_request,
-            "subtotal": subtotal, "vat_rate": vat_rate, "vat_amount": vat_amount, "total_amount": total_amount,
-            "notes": data.get("notes", "Merci pour votre commande."),
-            "payment_terms": data.get("payment_terms", "Paiement à réception.")
-        }
-        
-        pdf_filepath = current_app.invoice_service.create_professional_invoice_pdf(invoice_data_for_service)
-
-        if pdf_filepath:
-            cursor.execute("""
-                INSERT INTO professional_invoices 
-                (professional_user_id, invoice_number, issue_date, due_date, total_amount, vat_amount, status, pdf_url, notes, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (professional_user_id, invoice_id_from_request, 
-                  invoice_data_for_service['issue_date'], invoice_data_for_service.get('due_date'),
-                  total_amount, vat_amount, data.get('status', 'sent'), pdf_filepath, invoice_data_for_service.get('notes'), datetime.utcnow()))
-            prof_invoice_db_id = cursor.lastrowid
-            
-            for item in invoice_items_from_request:
+        cursor.execute(query, params)
+        products_rows = cursor.fetchall()
+        products = []
+        for row in products_rows:
+            product_dict = row_to_dict(cursor, row)
+            # Fetch variants if it's a variable product
+            if product_dict['product_type'] == 'variable':
                 cursor.execute("""
-                    INSERT INTO professional_invoice_items (invoice_id, description, quantity, unit_price, total_price)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (prof_invoice_db_id, item['description'], item['quantity'], item['unit_price'], float(item.get('quantity',0)) * float(item.get('unit_price',0)) ))
-            db.commit()
-            
-            current_app.audit_log_service.log_action(
-                action='b2b_invoice_generated', user_id=admin_user['id'], username=admin_user['email'],
-                target_type='professional_invoice', target_id=prof_invoice_db_id,
-                details={'invoice_number': invoice_id_from_request, 'client_id': professional_user_id, 'pdf_path': pdf_filepath}, success=True)
-            return jsonify({"message": "Professional invoice generated successfully", "pdf_path": pdf_filepath, "invoice_db_id": prof_invoice_db_id}), 201
-        else:
-            current_app.audit_log_service.log_action(
-                action='b2b_invoice_generation_failed', user_id=admin_user['id'], username=admin_user['email'],
-                target_type='professional_invoice',
-                details={'invoice_data': invoice_data_for_service, 'error': 'PDF generation returned None'}, success=False)
-            return jsonify({"message": "Failed to generate professional invoice PDF"}), 500
-    except Exception as e:
-        db.rollback()
-        current_app.logger.error(f"Error generating B2B invoice: {e}", exc_info=True)
-        current_app.audit_log_service.log_action(
-            action='b2b_invoice_generation_failed', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='professional_invoice',
-            details={'invoice_data': data, 'error': str(e)}, success=False)
-        return jsonify({"message": f"An error occurred: {str(e)}"}), 500
+                    SELECT id, product_id, weight_grams, price, stock_quantity, sku 
+                    FROM product_weight_options 
+                    WHERE product_id = ?
+                """, (product_dict['id'],))
+                variants_rows = cursor.fetchall()
+                product_dict['variants'] = [row_to_dict(cursor, v_row) for v_row in variants_rows]
+            else: # simple product
+                # For simple products, overall stock is p.stock_quantity
+                # For variable products, p.stock_quantity could be sum of variants or managed differently.
+                # The current schema has p.stock_quantity. Let's ensure it's consistent.
+                pass
+            products.append(product_dict)
+        
+        conn.close()
+        return jsonify(products), 200
+    except sqlite3.Error as e:
+        current_app.logger.error(f"Database error fetching products: {e}")
+        return jsonify({"message": "Failed to fetch products", "error": str(e)}), 500
 
-@admin_api_bp.route('/invoices/professional', methods=['GET'])
-@admin_required
-def get_professional_invoices():
-    db = get_db_connection()
-    cursor = db.execute("""
-        SELECT pi.*, u.company_name, u.email as user_email
-        FROM professional_invoices pi
-        JOIN users u ON pi.professional_user_id = u.id
-        ORDER BY pi.issue_date DESC, pi.id DESC
-    """)
-    invoices = [dict(row) for row in cursor.fetchall()]
-    return jsonify(invoices), 200
-
-@admin_api_bp.route('/invoices/professional/<int:invoice_db_id>', methods=['PUT'])
-@admin_required
-def update_professional_invoice_status(invoice_db_id):
-    data = get_json_or_abort(request)
-    if data is None or 'status' not in data:
-        return jsonify(message="Missing 'status' in request data"), 400
-    
-    new_status = data['status']
-    db = get_db_connection()
-    cursor = db.cursor()
-    admin_user = g.admin_user
+@admin_api_bp.route('/products', methods=['POST'])
+@jwt_required
+def create_product():
+    # This is a complex endpoint due to variants and asset generation
+    # Using request.form for mixed data (JSON for product_data, files for image)
     try:
-        cursor.execute("SELECT * FROM professional_invoices WHERE id = ?", (invoice_db_id,))
-        invoice = cursor.fetchone()
-        if not invoice:
-            return jsonify(message="Invoice not found"), 404
+        product_data_json = request.form.get('product_data')
+        if not product_data_json:
+            return jsonify({"message": "Missing 'product_data' in form"}), 400
+        
+        data = json.loads(product_data_json)
+        image_file = request.files.get('image_file')
+        
+        required_fields = ['name_fr', 'name_en', 'category_id', 'product_type']
+        if not all(field in data for field in required_fields):
+            missing = [field for field in required_fields if field not in data]
+            return jsonify({"message": f"Missing required fields in product_data: {', '.join(missing)}"}), 400
 
-        cursor.execute("UPDATE professional_invoices SET status = ?, updated_at = ? WHERE id = ?", 
-                       (new_status, datetime.utcnow(), invoice_db_id))
-        db.commit()
+        product_type = data['product_type']
+        base_price = data.get('base_price') if product_type == 'simple' else None
+        initial_stock = data.get('initial_stock_quantity') if product_type == 'simple' else 0 # For simple products
+        weight_options_data = data.get('weight_options', []) if product_type == 'variable' else []
 
-        current_app.audit_log_service.log_action(
-            action='b2b_invoice_status_updated', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='professional_invoice', target_id=invoice_db_id,
-            details={'invoice_number': invoice['invoice_number'], 'old_status': invoice['status'], 'new_status': new_status}, success=True)
-        return jsonify(message=f"Invoice {invoice['invoice_number']} status updated to {new_status}."), 200
-    except Exception as e:
-        db.rollback()
-        current_app.logger.error(f"Error updating B2B invoice {invoice_db_id} status: {e}")
-        current_app.audit_log_service.log_action(
-            action='b2b_invoice_status_update_failed', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='professional_invoice', target_id=invoice_db_id, details={'error': str(e)}, success=False)
-        return jsonify(message=f"An error occurred: {str(e)}"), 500
+        if product_type == 'simple' and (base_price is None or initial_stock is None):
+            return jsonify({"message": "Simple products require 'base_price' and 'initial_stock_quantity'"}), 400
+        if product_type == 'variable' and not weight_options_data:
+            return jsonify({"message": "Variable products require at least one 'weight_option'"}), 400
+        
+        image_url = None
+        if image_file:
+            filename = secure_filename(image_file.filename)
+            image_path = os.path.join(current_app.config['ASSET_STORAGE_PATH'], 'product_images', filename)
+            os.makedirs(os.path.dirname(image_path), exist_ok=True)
+            image_file.save(image_path)
+            image_url = f"/assets_generated/product_images/{filename}"
 
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        conn.execute("BEGIN") # Start transaction
 
-# --- Dashboard Stats Endpoints ---
-@admin_api_bp.route('/stats/total_users', methods=['GET'])
-@admin_required
-def get_stats_total_users():
-    db = get_db_connection()
-    count = db.execute("SELECT COUNT(*) as total_users FROM users").fetchone()['total_users']
-    return jsonify(total_users=count)
-
-@admin_api_bp.route('/stats/total_products', methods=['GET'])
-@admin_required
-def get_stats_total_products():
-    db = get_db_connection()
-    count = db.execute("SELECT COUNT(*) as total_products FROM products").fetchone()['total_products']
-    return jsonify(total_products=count)
-
-@admin_api_bp.route('/stats/total_orders', methods=['GET'])
-@admin_required
-def get_stats_total_orders():
-    db = get_db_connection()
-    count = db.execute("SELECT COUNT(*) as total_orders FROM orders WHERE status NOT IN ('pending', 'cancelled')").fetchone()['total_orders']
-    return jsonify(total_orders=count)
-
-@admin_api_bp.route('/stats/total_revenue', methods=['GET'])
-@admin_required
-def get_stats_total_revenue():
-    db = get_db_connection()
-    revenue = db.execute("SELECT SUM(total_amount) as total_revenue FROM orders WHERE payment_status = 'paid'").fetchone()['total_revenue'] or 0.0
-    return jsonify(total_revenue=revenue)
-
-# --- User Management ---
-@admin_api_bp.route('/users', methods=['GET'])
-@admin_required
-def get_all_users_admin():
-    db = get_db_connection()
-    users = [dict(row) for row in db.execute("SELECT id, email, first_name, last_name, is_admin, is_professional, professional_status, company_name, created_at, last_login_at, is_verified FROM users ORDER BY created_at DESC").fetchall()]
-    return jsonify(users), 200
-
-@admin_api_bp.route('/users/<int:user_id>/approve_professional', methods=['PUT'])
-@admin_required
-def approve_professional_user(user_id):
-    db = get_db_connection()
-    cursor = db.cursor()
-    admin_user = g.admin_user
-    try:
-        cursor.execute("SELECT * FROM users WHERE id = ? AND is_professional = TRUE", (user_id,))
-        user_to_approve = cursor.fetchone()
-        if not user_to_approve:
-            return jsonify(message="User not found or not a professional account."), 404
-        if user_to_approve['professional_status'] == 'approved':
-            return jsonify(message="User is already approved."), 200 # Or 400 if it's an invalid action
-
-        cursor.execute("UPDATE users SET professional_status = 'approved', is_verified = TRUE, updated_at = ? WHERE id = ?", 
-                       (datetime.utcnow(), user_id)) # Also mark as verified upon approval
-        db.commit()
-        # TODO: Send email notification to user
-        current_app.audit_log_service.log_action(
-            action='b2b_user_approved', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='user', target_id=user_id, details={'email': user_to_approve['email']}, success=True)
-        return jsonify(message="Professional user approved successfully."), 200
-    except Exception as e:
-        db.rollback()
-        current_app.logger.error(f"Error approving professional user {user_id}: {e}")
-        current_app.audit_log_service.log_action(
-            action='b2b_user_approve_failed', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='user', target_id=user_id, details={'error': str(e)}, success=False)
-        return jsonify(message=f"An error occurred: {str(e)}"), 500
-
-@admin_api_bp.route('/users/<int:user_id>/professional_status', methods=['PUT'])
-@admin_required
-def update_professional_user_status(user_id):
-    data = get_json_or_abort(request)
-    if data is None or 'status' not in data:
-        return jsonify(message="Missing 'status' in request data (e.g., 'approved', 'rejected', 'pending')"), 400
-    
-    new_status = data['status']
-    valid_statuses = ['pending', 'approved', 'rejected', 'suspended'] # Define valid statuses
-    if new_status not in valid_statuses:
-        return jsonify(message=f"Invalid status. Must be one of: {', '.join(valid_statuses)}"), 400
-
-    db = get_db_connection()
-    cursor = db.cursor()
-    admin_user = g.admin_user
-    try:
-        cursor.execute("SELECT * FROM users WHERE id = ? AND is_professional = TRUE", (user_id,))
-        user_to_update = cursor.fetchone()
-        if not user_to_update:
-            return jsonify(message="User not found or not a professional account."), 404
-
-        cursor.execute("UPDATE users SET professional_status = ?, updated_at = ? WHERE id = ?", 
-                       (new_status, datetime.utcnow(), user_id))
-        db.commit()
-        # TODO: Send email notification if status changes significantly (e.g., rejected, suspended)
-        current_app.audit_log_service.log_action(
-            action='b2b_user_status_changed', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='user', target_id=user_id, 
-            details={'email': user_to_update['email'], 'old_status': user_to_update['professional_status'], 'new_status': new_status}, success=True)
-        return jsonify(message=f"Professional user status updated to '{new_status}' successfully."), 200
-    except Exception as e:
-        db.rollback()
-        current_app.logger.error(f"Error updating professional user {user_id} status: {e}")
-        current_app.audit_log_service.log_action(
-            action='b2b_user_status_change_failed', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='user', target_id=user_id, details={'error': str(e)}, success=False)
-        return jsonify(message=f"An error occurred: {str(e)}"), 500
-
-# --- Order Management (Basic Examples) ---
-@admin_api_bp.route('/orders', methods=['GET'])
-@admin_required
-def get_all_orders_admin():
-    db = get_db_connection()
-    # Join with users table to get customer email/name
-    orders_cursor = db.execute("""
-        SELECT o.*, u.email as customer_email, u.first_name as customer_first_name, u.last_name as customer_last_name
-        FROM orders o
-        LEFT JOIN users u ON o.user_id = u.id
-        ORDER BY o.order_date DESC
-    """)
-    orders = [dict(row) for row in orders_cursor.fetchall()]
-
-    for order in orders:
-        items_cursor = db.execute("SELECT * FROM order_items WHERE order_id = ?", (order['id'],))
-        order['items'] = [dict(item_row) for item_row in items_cursor.fetchall()]
-        # Parse JSON address fields
         try:
-            order['shipping_address'] = json.loads(order['shipping_address']) if order.get('shipping_address') else {}
-            order['billing_address'] = json.loads(order['billing_address']) if order.get('billing_address') else {}
-        except json.JSONDecodeError:
-            current_app.logger.warning(f"Could not parse address for order {order['id']}")
-            order['shipping_address'] = {}
-            order['billing_address'] = {}
+            # Insert base product
+            cursor.execute("""
+                INSERT INTO products (name_fr, name_en, description_fr, description_en, category_id, 
+                                      base_price, image_url, product_type, is_active, stock_quantity)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (data['name_fr'], data['name_en'], data.get('description_fr'), data.get('description_en'),
+                  data['category_id'], base_price, image_url, product_type, data.get('is_active', True),
+                  initial_stock if product_type == 'simple' else 0)) # Overall stock for simple, 0 for variable initially
+            product_id = cursor.lastrowid
+
+            total_variable_stock = 0
+            if product_type == 'variable':
+                for option in weight_options_data:
+                    if not all(k in option for k in ['weight_grams', 'price', 'stock_quantity']):
+                        raise ValueError("Each weight option requires 'weight_grams', 'price', and 'stock_quantity'.")
+                    
+                    cursor.execute("""
+                        INSERT INTO product_weight_options (product_id, weight_grams, price, stock_quantity, sku)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (product_id, option['weight_grams'], option['price'], option['stock_quantity'], option.get('sku')))
+                    variant_id = cursor.lastrowid
+                    total_variable_stock += int(option['stock_quantity'])
+                    # Record initial stock for variant
+                    record_stock_movement(conn, product_id, variant_id, 'initial_stock', option['stock_quantity'], 
+                                          f"Initial stock for variant {option['weight_grams']}g")
+                
+                # Update main product's stock_quantity to sum of variants for variable products
+                cursor.execute("UPDATE products SET stock_quantity = ? WHERE id = ?", (total_variable_stock, product_id))
+
+            elif product_type == 'simple' and initial_stock > 0:
+                # Record initial stock for simple product (variant_id is NULL)
+                record_stock_movement(conn, product_id, None, 'initial_stock', initial_stock, "Initial stock for simple product")
+
+            # --- Asset Generation ---
+            # Use the first variant for asset details if variable, or base product if simple
+            asset_product_name = data['name_fr']
+            asset_product_id_display = f"MT{product_id:05d}" # Example display ID
+            asset_details_for_generation = {
+                'product_id': product_id,
+                'product_name': asset_product_name,
+                'product_id_display': asset_product_id_display,
+                'category_name': '', # Fetch category name
+                'composition': data.get('description_fr', ''), # Or a specific field
+                'origin': 'France', # Example, make this configurable
+                'harvest_date': datetime.date.today().strftime('%Y-%m-%d'), # Example
+            }
+            if product_type == 'variable' and weight_options_data:
+                first_variant = weight_options_data[0]
+                asset_details_for_generation['weight_grams'] = first_variant['weight_grams']
+                asset_details_for_generation['price_per_kg'] = (float(first_variant['price']) / float(first_variant['weight_grams'])) * 1000
+            elif product_type == 'simple' and base_price is not None:
+                # Assuming simple products might have a standard weight or it's part of description
+                asset_details_for_generation['weight_grams'] = data.get('base_weight_grams', 0) # Add this field if applicable
+                asset_details_for_generation['price_per_kg'] = 0 # Calculate if applicable
+            
+            # Fetch category name for assets
+            cat_cursor = conn.cursor()
+            cat_cursor.execute("SELECT name_fr FROM categories WHERE id = ?", (data['category_id'],))
+            cat_data = cat_cursor.fetchone()
+            if cat_data:
+                asset_details_for_generation['category_name'] = cat_data['name_fr']
 
 
-    return jsonify(orders), 200
+            qr_path, label_path, passport_path = None, None, None
+            try:
+                qr_path = asset_service.generate_qr_code(product_id, f"{current_app.config['FRONTEND_URL']}/produit-detail.html?id={product_id}")
+                label_path = asset_service.generate_product_label(asset_details_for_generation)
+                passport_path = asset_service.generate_product_passport(asset_details_for_generation)
+                
+                cursor.execute("""
+                    UPDATE products SET qr_code_path = ?, label_path = ?, passport_html_path = ? 
+                    WHERE id = ?
+                """, (qr_path, label_path, passport_path, product_id))
+                asset_generation_success = True
+            except Exception as asset_e:
+                current_app.logger.error(f"Asset generation failed for product {product_id}: {asset_e}")
+                # Decide if this is a critical failure or if product can be created without assets
+                asset_generation_success = False # Or raise to rollback
 
-@admin_api_bp.route('/orders/<int:order_id>/status', methods=['PUT'])
-@admin_required
-def update_order_status(order_id):
-    data = get_json_or_abort(request)
-    if data is None or 'status' not in data:
-        return jsonify(message="Missing 'status' in request data"), 400
-    
-    new_status = data['status']
-    # Define valid order statuses if needed
-    # valid_order_statuses = ['pending', 'processing', 'shipped', 'delivered', 'cancelled', 'refunded']
-    # if new_status not in valid_order_statuses:
-    #     return jsonify(message="Invalid order status"), 400
+            conn.commit()
+            audit_logger.log_event('product_created', details={'product_id': product_id, 'name_fr': data['name_fr'], 'assets_generated': asset_generation_success})
+            return jsonify({
+                "message": "Product created successfully" + (" (assets generated)" if asset_generation_success else " (asset generation failed)"), 
+                "product_id": product_id, 
+                "image_url": image_url,
+                "qr_code_path": qr_path,
+                "label_path": label_path,
+                "passport_html_path": passport_path
+            }), 201
 
-    db = get_db_connection()
-    cursor = db.cursor()
-    admin_user = g.admin_user
-    try:
-        cursor.execute("SELECT * FROM orders WHERE id = ?", (order_id,))
-        order = cursor.fetchone()
-        if not order:
-            return jsonify(message="Order not found"), 404
+        except (sqlite3.Error, ValueError) as e:
+            conn.rollback()
+            current_app.logger.error(f"Error creating product: {e}")
+            return jsonify({"message": "Failed to create product", "error": str(e)}), 500
+        finally:
+            conn.close()
 
-        cursor.execute("UPDATE orders SET status = ?, updated_at = ? WHERE id = ?", 
-                       (new_status, datetime.utcnow(), order_id))
-        db.commit()
-        # TODO: Send email notification to customer about status change
-        current_app.audit_log_service.log_action(
-            action='order_status_updated', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='order', target_id=order_id, 
-            details={'old_status': order['status'], 'new_status': new_status}, success=True)
-        return jsonify(message=f"Order {order_id} status updated to {new_status}."), 200
+    except json.JSONDecodeError:
+        return jsonify({"message": "Invalid JSON in 'product_data'"}), 400
     except Exception as e:
-        db.rollback()
-        current_app.logger.error(f"Error updating order {order_id} status: {e}")
-        current_app.audit_log_service.log_action(
-            action='order_status_update_failed', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='order', target_id=order_id, details={'error': str(e)}, success=False)
-        return jsonify(message=f"An error occurred: {str(e)}"), 500
+        current_app.logger.error(f"Unexpected error in create_product: {e}")
+        return jsonify({"message": "An unexpected error occurred", "error": str(e)}), 500
 
-# --- Review Management ---
-@admin_api_bp.route('/reviews', methods=['GET'])
-@admin_required
-def get_all_reviews_admin():
-    # Parameter for status (e.g., ?status=pending or ?status=approved)
-    status_filter = request.args.get('status')
-    query = """
-        SELECT r.*, p.name_fr as product_name, u.email as user_email
-        FROM reviews r
-        JOIN products p ON r.product_id = p.id
-        JOIN users u ON r.user_id = u.id
-    """
-    params = []
-    if status_filter:
-        query += " WHERE r.is_approved = ?"
-        params.append(status_filter.lower() == 'approved' or status_filter == '1') # True for approved, False for pending
+
+@admin_api_bp.route('/products/<int:product_id>', methods=['PUT'])
+@jwt_required
+def update_product(product_id):
+    # Similar complexity to create_product
+    try:
+        product_data_json = request.form.get('product_data')
+        if not product_data_json:
+            return jsonify({"message": "Missing 'product_data' in form"}), 400
+        
+        data = json.loads(product_data_json)
+        image_file = request.files.get('image_file')
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT image_url, product_type, stock_quantity FROM products WHERE id = ?", (product_id,))
+        product = cursor.fetchone()
+        if not product:
+            conn.close()
+            return jsonify({"message": "Product not found"}), 404
+
+        current_image_url = product['image_url']
+        new_image_url = current_image_url
+        if image_file:
+            # Optionally delete old image
+            if current_image_url:
+                old_image_path = os.path.join(current_app.root_path, '..', current_image_url.lstrip('/'))
+                if os.path.exists(old_image_path): os.remove(old_image_path)
+            
+            filename = secure_filename(image_file.filename)
+            image_path = os.path.join(current_app.config['ASSET_STORAGE_PATH'], 'product_images', filename)
+            os.makedirs(os.path.dirname(image_path), exist_ok=True)
+            image_file.save(image_path)
+            new_image_url = f"/assets_generated/product_images/{filename}"
+
+        product_type = data.get('product_type', product['product_type']) # Cannot change product type easily
+        base_price = data.get('base_price') if product_type == 'simple' else None
+        
+        # Stock updates are complex:
+        # For simple products, 'initial_stock_quantity' in form might mean 'new_stock_quantity'
+        # For variable products, 'weight_options' will contain new stock for each variant.
+        
+        conn.execute("BEGIN")
+        try:
+            cursor.execute("""
+                UPDATE products SET name_fr = ?, name_en = ?, description_fr = ?, description_en = ?, 
+                                   category_id = ?, base_price = ?, image_url = ?, is_active = ?
+                WHERE id = ?
+            """, (data.get('name_fr'), data.get('name_en'), data.get('description_fr'), data.get('description_en'),
+                  data.get('category_id'), base_price, new_image_url, data.get('is_active', True),
+                  product_id))
+
+            total_variable_stock_after_update = 0
+            if product_type == 'variable':
+                # Manage variants: delete old, add new/update existing. This is complex.
+                # Simpler: Assume frontend sends ALL variants. Delete existing, then re-add.
+                # More robust: Identify existing, new, deleted variants.
+                
+                # Get current variants' stock
+                cursor.execute("SELECT id, stock_quantity FROM product_weight_options WHERE product_id = ?", (product_id,))
+                old_variants_stock = {v['id']: v['stock_quantity'] for v in cursor.fetchall()}
+
+                # For simplicity here: delete all existing variants for this product and re-add from `data`
+                # This means SKUs might change if not careful, or IDs.
+                # A more sophisticated diff and update/insert/delete is better for production.
+                cursor.execute("DELETE FROM product_weight_options WHERE product_id = ?", (product_id,))
+                # Also clear related stock movements or handle them carefully.
+                # For now, we'll just record new movements.
+
+                weight_options_data = data.get('weight_options', [])
+                if not weight_options_data: # If variable product now has no variants, this is an issue.
+                     # conn.rollback()
+                     # return jsonify({"message": "Variable product must have at least one weight option"}), 400
+                     # Or convert to simple? For now, assume frontend sends valid data.
+                     pass
+
+
+                for option in weight_options_data:
+                    cursor.execute("""
+                        INSERT INTO product_weight_options (product_id, weight_grams, price, stock_quantity, sku)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (product_id, option['weight_grams'], option['price'], option['stock_quantity'], option.get('sku')))
+                    variant_id = cursor.lastrowid # New variant ID
+                    new_stock = int(option['stock_quantity'])
+                    total_variable_stock_after_update += new_stock
+                    
+                    # Determine stock change for movement record
+                    # This is simplified because we deleted old ones. A diff would be better.
+                    # For now, consider this as setting new stock level.
+                    # If we had old_variant_stock_for_this_sku, change = new_stock - old_variant_stock_for_this_sku
+                    # Since we deleted, we treat it as a new 'adjustment' or 'initial_variant_stock_update'
+                    record_stock_movement(conn, product_id, variant_id, 'stock_update', new_stock,
+                                          f"Stock update for variant {option['weight_grams']}g during product update")
+                
+                cursor.execute("UPDATE products SET stock_quantity = ? WHERE id = ?", (total_variable_stock_after_update, product_id))
+
+            elif product_type == 'simple':
+                new_simple_stock = data.get('initial_stock_quantity') # Assuming this field name from form
+                if new_simple_stock is not None:
+                    new_simple_stock = int(new_simple_stock)
+                    old_simple_stock = product['stock_quantity'] if product['stock_quantity'] is not None else 0
+                    stock_change = new_simple_stock - old_simple_stock
+                    
+                    cursor.execute("UPDATE products SET stock_quantity = ? WHERE id = ?", (new_simple_stock, product_id))
+                    if stock_change != 0:
+                         record_stock_movement(conn, product_id, None, 
+                                              'stock_adjustment' if stock_change > 0 else 'stock_reduction', 
+                                              abs(stock_change), "Stock update for simple product via admin edit")
+            
+            # --- Asset Re-Generation (Optional, or only if relevant fields changed) ---
+            # For simplicity, let's assume assets might need regeneration if product name/details change
+            asset_product_name = data.get('name_fr', product['name_fr']) # Use new name if provided
+            asset_product_id_display = f"MT{product_id:05d}"
+            asset_details_for_generation = {
+                'product_id': product_id,
+                'product_name': asset_product_name,
+                'product_id_display': asset_product_id_display,
+                'category_name': '', 
+                'composition': data.get('description_fr', ''),
+                'origin': 'France', 
+                'harvest_date': datetime.date.today().strftime('%Y-%m-%d'),
+            }
+            # ... (fetch category, set weight/price as in create_product) ...
+            cat_cursor = conn.cursor() # Use a new cursor or ensure the main one is not in use
+            cat_cursor.execute("SELECT name_fr FROM categories WHERE id = ?", (data.get('category_id', product['category_id']),))
+            cat_data = cat_cursor.fetchone()
+            if cat_data: asset_details_for_generation['category_name'] = cat_data['name_fr']
+            
+            # Add weight/price for asset generation (similar logic to create)
+            # ...
+
+            qr_path, label_path, passport_path = product.get('qr_code_path'), product.get('label_path'), product.get('passport_html_path')
+            asset_regeneration_success = True # Assume true, set false on error
+            try:
+                # Potentially only regenerate if key data changed, or always regenerate
+                new_qr_path = asset_service.generate_qr_code(product_id, f"{current_app.config['FRONTEND_URL']}/produit-detail.html?id={product_id}")
+                new_label_path = asset_service.generate_product_label(asset_details_for_generation)
+                new_passport_path = asset_service.generate_product_passport(asset_details_for_generation)
+                
+                if new_qr_path != qr_path or new_label_path != label_path or new_passport_path != passport_path:
+                    cursor.execute("""
+                        UPDATE products SET qr_code_path = ?, label_path = ?, passport_html_path = ? 
+                        WHERE id = ?
+                    """, (new_qr_path, new_label_path, new_passport_path, product_id))
+                    qr_path, label_path, passport_path = new_qr_path, new_label_path, new_passport_path
+            except Exception as asset_e:
+                current_app.logger.error(f"Asset re-generation failed for product {product_id}: {asset_e}")
+                asset_regeneration_success = False
+
+
+            conn.commit()
+            audit_logger.log_event('product_updated', details={'product_id': product_id, 'name_fr': data.get('name_fr'), 'assets_regenerated': asset_regeneration_success})
+            return jsonify({
+                "message": "Product updated successfully" + (" (assets re-generated)" if asset_regeneration_success else " (asset re-generation failed/skipped)"),
+                "product_id": product_id, 
+                "image_url": new_image_url,
+                "qr_code_path": qr_path,
+                "label_path": label_path,
+                "passport_html_path": passport_path
+            }), 200
+
+        except (sqlite3.Error, ValueError) as e:
+            conn.rollback()
+            current_app.logger.error(f"Error updating product {product_id}: {e}")
+            return jsonify({"message": "Failed to update product", "error": str(e)}), 500
+        finally:
+            conn.close()
+
+    except json.JSONDecodeError:
+        return jsonify({"message": "Invalid JSON in 'product_data'"}), 400
+    except Exception as e:
+        current_app.logger.error(f"Unexpected error in update_product {product_id}: {e}")
+        return jsonify({"message": "An unexpected error occurred", "error": str(e)}), 500
+
+
+@admin_api_bp.route('/products/<int:product_id>', methods=['DELETE'])
+@jwt_required
+def delete_product(product_id):
+    conn = get_db_connection()
+    conn.execute("BEGIN")
+    try:
+        cursor = conn.cursor()
+        # Check if product is in any orders (more complex check needed if order_items table exists)
+        # For now, basic check. A real system would check order_items.
+        # cursor.execute("SELECT COUNT(*) FROM order_items WHERE product_id = ? OR variant_id IN (SELECT id FROM product_weight_options WHERE product_id = ?)", (product_id, product_id))
+        # if cursor.fetchone()[0] > 0:
+        #     conn.rollback()
+        #     return jsonify({"message": "Cannot delete product: it is part of existing orders."}), 409
+
+        # Delete assets (QR, label, passport files)
+        cursor.execute("SELECT image_url, qr_code_path, label_path, passport_html_path FROM products WHERE id = ?", (product_id,))
+        product_assets = cursor.fetchone()
+        if product_assets:
+            for asset_key in ['image_url', 'qr_code_path', 'label_path', 'passport_html_path']:
+                if product_assets[asset_key]:
+                    asset_file_path = os.path.join(current_app.root_path, '..', product_assets[asset_key].lstrip('/'))
+                    if os.path.exists(asset_file_path):
+                        try:
+                            os.remove(asset_file_path)
+                        except OSError as e:
+                             current_app.logger.error(f"Error deleting asset file {asset_file_path} for product {product_id}: {e}")
+        
+        # Delete variants and their stock movements first
+        cursor.execute("DELETE FROM inventory_movements WHERE product_id = ?", (product_id,)) # Deletes for simple and variable
+        cursor.execute("DELETE FROM product_weight_options WHERE product_id = ?", (product_id,))
+        # Delete product
+        cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
+        
+        # Delete reviews for this product
+        cursor.execute("DELETE FROM reviews WHERE product_id = ?", (product_id,))
+
+        conn.commit()
+        audit_logger.log_event('product_deleted', details={'product_id': product_id})
+        return jsonify({"message": "Product deleted successfully"}), 200
+    except sqlite3.Error as e:
+        conn.rollback()
+        current_app.logger.error(f"Database error deleting product {product_id}: {e}")
+        return jsonify({"message": "Failed to delete product", "error": str(e)}), 500
+    finally:
+        conn.close()
+
+
+# --- Users ---
+@admin_api_bp.route('/users', methods=['GET'])
+@jwt_required
+def get_users():
+    # Add pagination and filtering (e.g., by role, status)
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        # Fetching more details including address for B2C and company for B2B
+        # This could be multiple queries or a more complex join
+        cursor.execute("""
+            SELECT u.id, u.email, u.first_name, u.last_name, u.role, u.is_verified, u.account_status, 
+                   u.created_at, u.company_name, u.vat_number,
+                   a.address_line1, a.city, a.postal_code, a.country 
+            FROM users u
+            LEFT JOIN addresses a ON u.id = a.user_id AND (a.is_default_shipping = 1 OR a.is_default_billing = 1)
+            ORDER BY u.created_at DESC
+        """) # Simplified address join, might pick one if multiple defaults
+        users_rows = cursor.fetchall()
+        users = [row_to_dict(cursor, r) for r in users_rows]
+        conn.close()
+        return jsonify(users), 200
+    except sqlite3.Error as e:
+        current_app.logger.error(f"Database error fetching users: {e}")
+        return jsonify({"message": "Failed to fetch users", "error": str(e)}), 500
+
+@admin_api_bp.route('/users/<int:user_id>', methods=['PUT'])
+@jwt_required
+def update_user(user_id):
+    data = request.get_json()
+    # Admin can update role, verification status, account_status (for B2B)
+    # Be careful about updating passwords here - should be a separate flow or require confirmation.
     
-    query += " ORDER BY r.review_date DESC"
+    allowed_updates = {}
+    if 'role' in data and data['role'] in ['b2c', 'professional', 'admin']:
+        allowed_updates['role'] = data['role']
+    if 'is_verified' in data: # boolean
+        allowed_updates['is_verified'] = 1 if data['is_verified'] else 0
+    if 'account_status' in data and data['account_status'] in ['pending', 'approved', 'rejected', 'suspended']:
+         allowed_updates['account_status'] = data['account_status']
+    
+    # Potentially update other fields like name, company info if provided
+    if 'first_name' in data: allowed_updates['first_name'] = data['first_name']
+    if 'last_name' in data: allowed_updates['last_name'] = data['last_name']
+    if 'company_name' in data: allowed_updates['company_name'] = data['company_name']
+    # etc. for other fields an admin might edit
 
-    db = get_db_connection()
-    reviews_cursor = db.execute(query, tuple(params))
-    reviews = [dict(row) for row in reviews_cursor.fetchall()]
-    return jsonify(reviews), 200
+    if not allowed_updates:
+        return jsonify({"message": "No valid fields provided for update"}), 400
+
+    set_clause = ", ".join([f"{key} = ?" for key in allowed_updates.keys()])
+    values = list(allowed_updates.values())
+    values.append(user_id)
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(f"UPDATE users SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", tuple(values))
+        conn.commit()
+        
+        if cursor.rowcount == 0:
+            conn.close()
+            return jsonify({"message": "User not found or no changes made"}), 404
+
+        conn.close()
+        audit_logger.log_event('user_updated_by_admin', admin_user_id=None, # Get admin_id from JWT if passed
+                               details={'target_user_id': user_id, 'changes': allowed_updates})
+        
+        # If account_status changed to 'approved' or 'rejected' for B2B, send email
+        if 'account_status' in allowed_updates and allowed_updates['account_status'] in ['approved', 'rejected']:
+            cursor = get_db_connection().cursor() # Re-open for read
+            cursor.execute("SELECT email, first_name, role FROM users WHERE id = ?", (user_id,))
+            user_info = cursor.fetchone()
+            get_db_connection().close()
+
+            if user_info and user_info['role'] == 'professional':
+                status_translation = {
+                    'approved': 'approuvé',
+                    'rejected': 'rejeté'
+                }
+                email_subject = f"Mise à jour du statut de votre compte professionnel - Maison Trüvra"
+                email_body = f"Bonjour {user_info['first_name']},\n\nLe statut de votre compte professionnel Maison Trüvra a été mis à jour : {status_translation.get(allowed_updates['account_status'], allowed_updates['account_status'])}."
+                if allowed_updates['account_status'] == 'approved':
+                    email_body += "\nVous pouvez maintenant vous connecter et accéder à nos tarifs professionnels."
+                elif allowed_updates['account_status'] == 'rejected':
+                     email_body += "\nPour plus d'informations, veuillez contacter notre support."
+                email_body += "\n\nCordialement,\nL'équipe Maison Trüvra"
+                send_email_alert(email_subject, email_body, user_info['email'])
+
+
+        return jsonify({"message": "User updated successfully"}), 200
+    except sqlite3.Error as e:
+        current_app.logger.error(f"Database error updating user {user_id}: {e}")
+        return jsonify({"message": "Failed to update user", "error": str(e)}), 500
+
+
+# --- Reviews ---
+@admin_api_bp.route('/reviews', methods=['GET'])
+@jwt_required
+def get_reviews():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT r.id, r.product_id, p.name_fr as product_name, r.user_id, u.email as user_email, 
+                   r.rating, r.comment, r.is_approved, r.created_at
+            FROM reviews r
+            JOIN products p ON r.product_id = p.id
+            JOIN users u ON r.user_id = u.id
+            ORDER BY r.created_at DESC
+        """)
+        reviews_rows = cursor.fetchall()
+        reviews = [row_to_dict(cursor, r) for r in reviews_rows]
+        conn.close()
+        return jsonify(reviews), 200
+    except sqlite3.Error as e:
+        current_app.logger.error(f"Database error fetching reviews: {e}")
+        return jsonify({"message": "Failed to fetch reviews", "error": str(e)}), 500
 
 @admin_api_bp.route('/reviews/<int:review_id>/approve', methods=['PUT'])
-@admin_required
+@jwt_required
 def approve_review(review_id):
-    return _update_review_approval(review_id, True)
-
-@admin_api_bp.route('/reviews/<int:review_id>/reject', methods=['PUT']) # Or use DELETE for outright removal
-@admin_required
-def reject_review(review_id):
-    # Rejecting could mean setting is_approved to False, or deleting.
-    # For now, let's make it set is_approved to False.
-    return _update_review_approval(review_id, False, action_on_false='rejected')
-
-
-def _update_review_approval(review_id, approval_status, action_on_false='rejected'):
-    db = get_db_connection()
-    cursor = db.cursor()
-    admin_user = g.admin_user
     try:
-        cursor.execute("SELECT * FROM reviews WHERE id = ?", (review_id,))
-        review = cursor.fetchone()
-        if not review:
-            return jsonify(message="Review not found"), 404
-
-        cursor.execute("UPDATE reviews SET is_approved = ? WHERE id = ?", (approval_status, review_id))
-        db.commit()
-        
-        action_verb = 'approved' if approval_status else action_on_false
-        current_app.audit_log_service.log_action(
-            action=f'review_{action_verb}', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='review', target_id=review_id, success=True)
-        return jsonify(message=f"Review {review_id} has been {action_verb}."), 200
-    except Exception as e:
-        db.rollback()
-        current_app.logger.error(f"Error updating review {review_id} approval: {e}")
-        current_app.audit_log_service.log_action(
-            action=f'review_{action_verb}_failed', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='review', target_id=review_id, details={'error': str(e)}, success=False)
-        return jsonify(message=f"An error occurred: {str(e)}"), 500
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE reviews SET is_approved = 1 WHERE id = ?", (review_id,))
+        conn.commit()
+        if cursor.rowcount == 0:
+            conn.close()
+            return jsonify({"message": "Review not found"}), 404
+        conn.close()
+        audit_logger.log_event('review_approved', details={'review_id': review_id})
+        return jsonify({"message": "Review approved successfully"}), 200
+    except sqlite3.Error as e:
+        current_app.logger.error(f"Database error approving review {review_id}: {e}")
+        return jsonify({"message": "Failed to approve review", "error": str(e)}), 500
 
 @admin_api_bp.route('/reviews/<int:review_id>', methods=['DELETE'])
-@admin_required
+@jwt_required
 def delete_review(review_id):
-    db = get_db_connection()
-    cursor = db.cursor()
-    admin_user = g.admin_user
     try:
-        cursor.execute("SELECT * FROM reviews WHERE id = ?", (review_id,))
-        review = cursor.fetchone()
-        if not review:
-            return jsonify(message="Review not found"), 404
-            
+        conn = get_db_connection()
+        cursor = conn.cursor()
         cursor.execute("DELETE FROM reviews WHERE id = ?", (review_id,))
-        db.commit()
-        current_app.audit_log_service.log_action(
-            action='review_deleted', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='review', target_id=review_id, success=True)
-        return jsonify(message="Review deleted successfully"), 200
-    except Exception as e:
-        db.rollback()
-        current_app.logger.error(f"Error deleting review {review_id}: {e}")
-        current_app.audit_log_service.log_action(
-            action='review_delete_failed', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='review', target_id=review_id, details={'error': str(e)}, success=False)
-        return jsonify(message=f"An error occurred: {str(e)}"), 500
+        conn.commit()
+        if cursor.rowcount == 0:
+            conn.close()
+            return jsonify({"message": "Review not found"}), 404
+        conn.close()
+        audit_logger.log_event('review_deleted', details={'review_id': review_id})
+        return jsonify({"message": "Review deleted successfully"}), 200
+    except sqlite3.Error as e:
+        current_app.logger.error(f"Database error deleting review {review_id}: {e}")
+        return jsonify({"message": "Failed to delete review", "error": str(e)}), 500
 
-# --- Inventory Management (Basic Examples) ---
-@admin_api_bp.route('/inventory/movements', methods=['POST'])
-@admin_required
-def record_inventory_movement():
-    data = get_json_or_abort(request)
-    if data is None: return jsonify(message="Invalid JSON data"), 400
-    
-    required_fields_inv = ['product_variant_id', 'change_quantity', 'reason']
-    if not all(f in data for f in required_fields_inv):
-        return jsonify(message=f"Missing required fields: {', '.join(required_fields_inv)}"), 400
-
-    product_variant_id = data['product_variant_id']
-    change_quantity = int(data['change_quantity'])
-    reason = data['reason']
-    notes = data.get('notes')
-    related_order_id = data.get('related_order_id')
-
-    db = get_db_connection()
-    cursor = db.cursor()
-    admin_user = g.admin_user
+# --- Orders ---
+@admin_api_bp.route('/orders', methods=['GET'])
+@jwt_required
+def get_orders():
+    # Add pagination and filtering
     try:
-        # Check if variant exists
-        cursor.execute("SELECT stock_quantity FROM product_variants WHERE id = ?", (product_variant_id,))
-        variant = cursor.fetchone()
-        if not variant:
-            return jsonify(message="Product variant not found"), 404
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        # Fetch order details along with user email and items
+        cursor.execute("""
+            SELECT o.id as order_id, u.email as user_email, o.order_date, o.total_amount, o.status,
+                   o.shipping_address_line1, o.shipping_city, o.shipping_postal_code, o.shipping_country,
+                   o.billing_address_line1, o.billing_city, o.billing_postal_code, o.billing_country
+            FROM orders o
+            JOIN users u ON o.user_id = u.id
+            ORDER BY o.order_date DESC
+        """)
+        orders_rows = cursor.fetchall()
+        orders = []
+        for row in orders_rows:
+            order_dict = row_to_dict(cursor, row)
+            # Fetch order items for each order
+            cursor.execute("""
+                SELECT oi.id as item_id, oi.product_id, p.name_fr as product_name, 
+                       oi.variant_id, pv.weight_grams as variant_weight, 
+                       oi.quantity, oi.price_at_purchase
+                FROM order_items oi
+                JOIN products p ON oi.product_id = p.id
+                LEFT JOIN product_weight_options pv ON oi.variant_id = pv.id
+                WHERE oi.order_id = ?
+            """, (order_dict['order_id'],))
+            items_rows = cursor.fetchall()
+            order_dict['items'] = [row_to_dict(cursor, i_row) for i_row in items_rows]
+            orders.append(order_dict)
+        conn.close()
+        return jsonify(orders), 200
+    except sqlite3.Error as e:
+        current_app.logger.error(f"Database error fetching orders: {e}")
+        return jsonify({"message": "Failed to fetch orders", "error": str(e)}), 500
+
+@admin_api_bp.route('/orders/<int:order_id>/status', methods=['PUT'])
+@jwt_required
+def update_order_status(order_id):
+    data = request.get_json()
+    new_status = data.get('status')
+    if not new_status or new_status not in ['pending_payment', 'processing', 'shipped', 'delivered', 'cancelled', 'refunded']:
+        return jsonify({"message": "Invalid or missing status"}), 400
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (new_status, order_id))
+        conn.commit()
+        if cursor.rowcount == 0:
+            conn.close()
+            return jsonify({"message": "Order not found"}), 404
         
-        new_stock_quantity = variant['stock_quantity'] + change_quantity
-        if new_stock_quantity < 0: # Prevent negative stock unless explicitly allowed by business logic
-             # For now, allow it but log a warning. Production might block this.
-            current_app.logger.warning(f"Stock for variant {product_variant_id} going negative: {new_stock_quantity}")
+        # Send email notification to user about status change
+        cursor.execute("SELECT u.email, u.first_name FROM orders o JOIN users u ON o.user_id = u.id WHERE o.id = ?", (order_id,))
+        user_info = cursor.fetchone()
+        conn.close()
 
+        if user_info:
+            email_subject = f"Mise à jour de votre commande #{order_id} - Maison Trüvra"
+            email_body = f"Bonjour {user_info['first_name']},\n\nLe statut de votre commande #{order_id} a été mis à jour : {new_status}.\n\nVous pouvez consulter les détails de votre commande sur votre compte.\n\nCordialement,\nL'équipe Maison Trüvra"
+            send_email_alert(email_subject, email_body, user_info['email'])
 
-        cursor.execute('''
-            INSERT INTO inventory_movements (product_variant_id, change_quantity, reason, related_order_id, notes)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (product_variant_id, change_quantity, reason, related_order_id, notes))
-        movement_id = cursor.lastrowid
+        audit_logger.log_event('order_status_updated', details={'order_id': order_id, 'new_status': new_status})
+        return jsonify({"message": f"Order {order_id} status updated to {new_status}"}), 200
+    except sqlite3.Error as e:
+        current_app.logger.error(f"Database error updating order status for {order_id}: {e}")
+        return jsonify({"message": "Failed to update order status", "error": str(e)}), 500
 
-        # Update stock_quantity in product_variants table
-        cursor.execute("UPDATE product_variants SET stock_quantity = ? WHERE id = ?", 
-                       (new_stock_quantity, product_variant_id))
-        db.commit()
+# --- Professional Invoices ---
+@admin_api_bp.route('/invoices/professional', methods=['POST'])
+@jwt_required
+def generate_professional_invoice_admin():
+    data = request.form # Assuming form data for file and other fields
+    invoice_details_json = data.get('invoice_details')
+    if not invoice_details_json:
+        return jsonify({"message": "Missing 'invoice_details' in form data"}), 400
+    
+    try:
+        invoice_data = json.loads(invoice_details_json)
+    except json.JSONDecodeError:
+        return jsonify({"message": "Invalid JSON in 'invoice_details'"}), 400
 
-        current_app.audit_log_service.log_action(
-            action='inventory_movement_recorded', user_id=admin_user['id'], username=admin_user['email'],
-            target_type='inventory_movement', target_id=movement_id, 
-            details={'variant_id': product_variant_id, 'change': change_quantity, 'reason': reason, 'new_stock': new_stock_quantity}, success=True)
-        return jsonify(message="Inventory movement recorded successfully", movement_id=movement_id, new_stock_quantity=new_stock_quantity), 201
+    # invoice_data should contain: professional_user_id, items, invoice_id_display, issue_date, due_date, etc.
+    # And potentially company_info_override (template_ fields from JS)
+    company_info_override = {k.replace('template_', ''): v for k, v in data.items() if k.startswith('template_')}
+
+    if not all(k in invoice_data for k in ['professional_user_id', 'items', 'invoice_id_display', 'issue_date', 'due_date']):
+        return jsonify({"message": "Missing required fields in invoice_details"}), 400
+
+    try:
+        pdf_path, invoice_number_db = invoice_service.create_and_save_professional_invoice(
+            invoice_data, 
+            company_info_override=company_info_override if company_info_override else None
+        )
+        
+        # pdf_path is the absolute path on server. We need a URL to serve it.
+        # Assuming INVOICE_PDF_PATH is 'assets_generated/invoices'
+        # and it's served under '/assets_generated/invoices/filename.pdf'
+        pdf_filename = os.path.basename(pdf_path)
+        pdf_url = f"/{current_app.config['INVOICE_PDF_PATH'].split('assets_generated/')[-1]}/{pdf_filename}"
+        
+        audit_logger.log_event('professional_invoice_generated_admin', details={'invoice_number': invoice_number_db, 'professional_user_id': invoice_data['professional_user_id']})
+        return jsonify({"message": "Professional invoice generated successfully", "pdf_url": pdf_url, "invoice_number": invoice_number_db}), 201
+    except ValueError as ve: # For data validation errors from service
+        current_app.logger.warning(f"Validation error generating prof invoice: {ve}")
+        return jsonify({"message": str(ve)}), 400
     except Exception as e:
-        db.rollback()
-        current_app.logger.error(f"Error recording inventory movement: {e}")
-        current_app.audit_log_service.log_action(
-            action='inventory_movement_failed', user_id=admin_user['id'], username=admin_user['email'],
-            details={'error': str(e), 'data': data}, success=False)
-        return jsonify(message=f"An error occurred: {str(e)}"), 500
+        current_app.logger.error(f"Error generating professional invoice: {e}")
+        return jsonify({"message": "Failed to generate professional invoice", "error": str(e)}), 500
 
-@admin_api_bp.route('/inventory/variants/<int:variant_id>', methods=['GET'])
-@admin_required
-def get_variant_inventory_details(variant_id):
-    db = get_db_connection()
-    variant_cursor = db.execute("""
-        SELECT pv.*, p.name_fr as product_name 
-        FROM product_variants pv
-        JOIN products p ON pv.product_id = p.id
-        WHERE pv.id = ?
-    """, (variant_id,))
-    variant = variant_cursor.fetchone()
-    if not variant:
-        return jsonify(message="Product variant not found"), 404
+@admin_api_bp.route('/invoices', methods=['GET'])
+@jwt_required
+def get_all_invoices():
+    # This should fetch both B2C (from orders) and B2B (from professional_invoices)
+    # For now, focusing on professional invoices table
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        # Fetch professional invoices
+        cursor.execute("""
+            SELECT pi.id, pi.invoice_number, pi.professional_user_id, u.company_name, u.email as user_email,
+                   pi.issue_date, pi.due_date, pi.total_amount, pi.status, pi.pdf_path
+            FROM professional_invoices pi
+            JOIN users u ON pi.professional_user_id = u.id
+            ORDER BY pi.issue_date DESC
+        """)
+        prof_invoices_rows = cursor.fetchall()
+        prof_invoices = []
+        for row in prof_invoices_rows:
+            inv_dict = row_to_dict(cursor, row)
+            if inv_dict['pdf_path']:
+                pdf_filename = os.path.basename(inv_dict['pdf_path'])
+                # Ensure this path construction is correct based on how assets are served
+                inv_dict['pdf_url'] = f"/{current_app.config['INVOICE_PDF_PATH'].split('assets_generated/')[-1]}/{pdf_filename}"
+            else:
+                inv_dict['pdf_url'] = None
+            prof_invoices.append(inv_dict)
+        
+        # TODO: Fetch B2C invoices (which are essentially order confirmations, maybe generate on demand or store)
+        
+        conn.close()
+        return jsonify({"professional_invoices": prof_invoices, "b2c_invoices": []}), 200 # Add B2C later
+    except sqlite3.Error as e:
+        current_app.logger.error(f"Database error fetching invoices: {e}")
+        return jsonify({"message": "Failed to fetch invoices", "error": str(e)}), 500
+
+# Serve generated assets (QR codes, labels, passports, invoices)
+# This requires careful path setup.
+# Example: /assets_generated/product_labels/label_1.png
+@admin_api_bp.route('/assets/<path:folder>/<path:filename>')
+# No JWT required for assets if they are meant to be publicly accessible via URL (e.g. in emails, QR codes)
+# If they need protection, add @jwt_required or a more specific one
+def serve_generated_asset(folder, filename):
+    # Ensure folder is one of the allowed asset types to prevent directory traversal
+    allowed_folders = ['product_labels', 'product_passports', 'product_qr_codes', 'invoices', 'product_images', 'category_images']
+    if folder not in allowed_folders:
+        return jsonify({"message": "Invalid asset folder"}), 403
     
-    movements_cursor = db.execute("SELECT * FROM inventory_movements WHERE product_variant_id = ? ORDER BY movement_date DESC", (variant_id,))
-    movements = [dict(row) for row in movements_cursor.fetchall()]
-    
-    return jsonify(variant=dict(variant), movements=movements), 200
+    directory = os.path.join(current_app.config['ASSET_STORAGE_PATH'], folder)
+    current_app.logger.debug(f"Attempting to serve asset from: {directory} / {filename}")
+    if not os.path.exists(os.path.join(directory, filename)):
+        current_app.logger.error(f"Asset not found: {os.path.join(directory, filename)}")
+        return jsonify({"message": "Asset not found"}), 404
+    return send_from_directory(directory, filename)
 
