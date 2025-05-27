@@ -12,59 +12,49 @@ async function initializeProfessionalPage() {
     const proShowUpdateFormButton = document.getElementById('pro-show-update-form-button');
     const proUpdateAccountForm = document.getElementById('pro-update-account-form');
     const proCancelUpdateFormButton = document.getElementById('pro-cancel-update-form-button');
-    const proForgotPasswordLink = document.getElementById('pro-forgot-password-link');
 
+    // Forgot password elements
+    const proForgotPasswordLink = document.getElementById('pro-forgot-password-link');
+    const forgotPasswordModal = document.getElementById('forgot-password-modal'); // Assuming this ID for the modal
+    const proForgotPasswordForm = document.getElementById('pro-forgot-password-form'); // Assuming this ID for the form inside modal
+    const proCancelForgotPassword = document.getElementById('pro-cancel-forgot-password'); // Button to close modal
 
     if (proLoginForm) proLoginForm.addEventListener('submit', handleProLogin);
     if (proRegisterForm) proRegisterForm.addEventListener('submit', handleProRegister);
     if (proLogoutButton) proLogoutButton.addEventListener('click', handleProLogout);
 
-    if (proShowUpdateFormButton) {
+    if (proShowUpdateFormButton && proUpdateAccountForm) {
         proShowUpdateFormButton.addEventListener('click', () => {
             proUpdateAccountForm.style.display = 'block';
             proShowUpdateFormButton.style.display = 'none';
-            populateProUpdateForm(); // Populate with current details
+            populateProUpdateForm();
         });
     }
-    if (proCancelUpdateFormButton) {
+    if (proCancelUpdateFormButton && proUpdateAccountForm && proShowUpdateFormButton) {
         proCancelUpdateFormButton.addEventListener('click', () => {
             proUpdateAccountForm.style.display = 'none';
-            clearFormErrors(proUpdateAccountForm);
+            if (typeof clearFormErrors === 'function') clearFormErrors(proUpdateAccountForm);
             proShowUpdateFormButton.style.display = 'block';
         });
     }
     if (proUpdateAccountForm) proUpdateAccountForm.addEventListener('submit', handleProUpdateAccount);
 
-    if (proForgotPasswordLink) {
+    // --- Forgot Password Modal Logic ---
+    if (proForgotPasswordLink && forgotPasswordModal) {
         proForgotPasswordLink.addEventListener('click', (e) => {
             e.preventDefault();
-            // Implement "Forgot Password" modal or redirect
-            showGlobalMessage(t('Fonctionnalite_Mot_de_passe_oublie_B2B_TODO'), 'info'); // Add to locales
+            forgotPasswordModal.style.display = 'flex'; // Show modal
+            const emailInput = document.getElementById('pro-forgot-email');
+            const messageElement = document.getElementById('pro-forgot-password-message');
+            if(emailInput) emailInput.value = '';
+            if(messageElement) messageElement.textContent = '';
+            if (proForgotPasswordForm && typeof clearFormErrors === 'function') clearFormErrors(proForgotPasswordForm);
         });
     }
 
-
-    checkProLoginState();
-    // Translate static elements on this page if not already done by main.js
-    if(typeof translatePageElements === 'function') translatePageElements();
-}
-
-
-    if (proForgotPasswordLink) {
-        proForgotPasswordLink.addEventListener('click', (e) => {
-            e.preventDefault();
-            if (forgotPasswordModal) {
-                forgotPasswordModal.style.display = 'flex'; // Show modal
-                document.getElementById('pro-forgot-email').value = ''; // Clear field
-                document.getElementById('pro-forgot-password-message').textContent = '';
-                clearFormErrors(proForgotPasswordForm);
-            }
-        });
-    }
-
-    if (proCancelForgotPassword) {
+    if (proCancelForgotPassword && forgotPasswordModal) {
         proCancelForgotPassword.addEventListener('click', () => {
-            if (forgotPasswordModal) forgotPasswordModal.style.display = 'none';
+            forgotPasswordModal.style.display = 'none';
         });
     }
     // Close modal if overlay is clicked
@@ -76,47 +66,44 @@ async function initializeProfessionalPage() {
         });
     }
 
-
     if (proForgotPasswordForm) {
         proForgotPasswordForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const email = document.getElementById('pro-forgot-email').value;
+            const emailInput = document.getElementById('pro-forgot-email');
+            const email = emailInput.value;
             const messageElement = document.getElementById('pro-forgot-password-message');
             messageElement.className = 'text-sm my-2'; // Reset class
             messageElement.textContent = '';
-            clearFormErrors(proForgotPasswordForm);
+            if(typeof clearFormErrors === 'function') clearFormErrors(proForgotPasswordForm);
 
-            if (!email || !validateEmail(email)) {
-                setFieldError(document.getElementById('pro-forgot-email'), t('Veuillez_entrer_une_adresse_e-mail_valide'));
+            if (!email || !validateEmail(email)) { // validateEmail from ui.js
+                if(typeof setFieldError === 'function') setFieldError(emailInput, t('Veuillez_entrer_une_adresse_e-mail_valide'));
                 return;
             }
 
-            showGlobalMessage(t('Pro_Traitement_Demande_MDP'), 'info'); // Add key
+            showGlobalMessage(t('Pro_Traitement_Demande_MDP'), 'info');
             try {
                 const result = await makeApiRequest('/auth/forgot-password', 'POST', { email });
-                if (result.success) {
-                    showGlobalMessage(t('Pro_Email_Reinitialisation_Envoye_Info'), 'success', 8000); // Add key
-                    messageElement.textContent = t('Pro_Email_Reinitialisation_Envoye_Info_Modal'); // Add key
-                    messageElement.classList.add('text-green-600');
-                    // Optionally hide the modal after a delay or keep it open with the message
-                    // setTimeout(() => { if (forgotPasswordModal) forgotPasswordModal.style.display = 'none'; }, 5000);
-                } else {
-                    // Even on failure, often a generic success message is shown for forgot password to not reveal existing emails
-                    showGlobalMessage(t('Pro_Email_Reinitialisation_Envoye_Info'), 'success', 8000);
-                    messageElement.textContent = t('Pro_Email_Reinitialisation_Envoye_Info_Modal');
-                    messageElement.classList.add('text-green-600');
-                    // For debugging, you might want to show actual error:
-                    // messageElement.textContent = result.message || t('Erreur_serveur');
-                    // messageElement.classList.add('text-brand-truffle-burgundy');
-                }
-            } catch (error) {
+                // The backend now always returns success: true for forgot-password to prevent email enumeration
+                // So we just display the generic "check your email" message.
+                showGlobalMessage(t('Pro_Email_Reinitialisation_Envoye_Info'), 'success', 10000);
+                messageElement.textContent = t('Pro_Email_Reinitialisation_Envoye_Info_Modal');
+                messageElement.classList.add('text-green-600');
+                // Optionally hide the modal after a delay
+                // setTimeout(() => { if (forgotPasswordModal) forgotPasswordModal.style.display = 'none'; }, 7000);
+
+            } catch (error) { // Should ideally not be reached if backend always returns success for this route
                 showGlobalMessage(t('Erreur_serveur'), 'error');
                 messageElement.textContent = error.message || t('Erreur_serveur');
                 messageElement.classList.add('text-brand-truffle-burgundy');
             }
         });
     }
+    // --- End Forgot Password Modal Logic ---
 
+    checkProLoginState();
+    if(typeof translatePageElements === 'function') translatePageElements();
+}
 function checkProLoginState() {
     const currentUser = getCurrentUser(); // from auth.js
     const loggedOutView = document.getElementById('pro-logged-out-view');
