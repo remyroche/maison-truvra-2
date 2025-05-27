@@ -3,171 +3,372 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mon Compte - Maison Trüvra</title>
+    <title data-i18n="account.title">Mon Compte - Maison Trüvra</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
-    <script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css"> <script>
         tailwind.config = {
             theme: {
                 extend: {
                     colors: {
-                        'brand-cream': '#F5EEDE',
-                        'brand-near-black': '#11120D',
-                        'brand-classic-gold': '#D4AF37',
-                        'brand-warm-taupe': '#A28C6A',
-                        'brand-earth-brown': '#7D6A4F',
-                        'brand-slate-blue-grey': '#6E7582',
-                        'brand-deep-sage-green': '#4B5A59',
-                        'brand-truffle-burgundy': '#8A3E3E',
-                    }
+                        'brand-primary': '#4A3B31', // Dark Brown
+                        'brand-secondary': '#8C6B5D', // Lighter Brown
+                        'brand-accent': '#D4AF37', // Gold-ish accent
+                        'brand-light': '#F5F0E6', // Creamy background
+                        'brand-dark-taupe': '#5A5A5A', // Dark Taupe for text
+                        'brand-warm-taupe': '#A08C7D', // Warm Taupe
+                    },
+                    fontFamily: {
+                        serif: ['Georgia', 'Times New Roman', 'serif'],
+                        sans: ['Inter', 'Arial', 'sans-serif'],
+                    },
                 }
             }
         }
     </script>
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #F5EEDE;
-            color: #7D6A4F; 
+        /* Additional custom styles if needed */
+        .modal {
+            display: none; /* Hidden by default */
+            position: fixed; /* Stay in place */
+            z-index: 100; /* Sit on top */
+            left: 0;
+            top: 0;
+            width: 100%; /* Full width */
+            height: 100%; /* Full height */
+            overflow: auto; /* Enable scroll if needed */
+            background-color: rgb(0,0,0); /* Fallback color */
+            background-color: rgba(0,0,0,0.4); /* Black w/ opacity */
         }
-        h1, h2, h3, .font-serif {
-            font-family: 'Playfair Display', serif;
+        .modal-content {
+            background-color: #fefefe;
+            margin: 10% auto; /* 10% from the top and centered */
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%; /* Could be more or less, depending on screen size */
+            max-width: 700px;
+            border-radius: 8px;
+            position: relative;
         }
-        .btn-primary {
-            background-color: #7D6A4F; color: #F5EEDE; padding: 0.85rem 1.75rem; 
-            border-radius: 0.375rem; transition: background-color 0.3s ease, transform 0.2s ease;
-            font-weight: 500; letter-spacing: 0.025em; display: inline-block; cursor: pointer;
+        .close-button {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
         }
-        .btn-primary:hover { background-color: #11120D; transform: translateY(-2px); }
-        .btn-secondary {
-            background-color: #A28C6A; color: #F5EEDE; padding: 0.75rem 1.5rem;
-            border-radius: 0.375rem; transition: background-color 0.3s ease, transform 0.2s ease;
-            font-weight: 500; display: inline-block; cursor: pointer;
+        .close-button:hover,
+        .close-button:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
         }
-        .btn-secondary:hover { background-color: #7D6A4F; transform: translateY(-1px); }
-        .form-input-checkout { @apply w-full px-4 py-3 text-brand-near-black bg-white border border-brand-warm-taupe/50 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-classic-gold shadow-sm; }
-        .page-header { @apply text-3xl md:text-4xl font-serif text-brand-near-black mb-8 text-center; } /* Retiré py-8 bg-white shadow-sm pour compte */
-        .modal-message { @apply fixed bottom-5 right-5 bg-brand-deep-sage-green text-brand-cream p-4 rounded-lg shadow-xl z-[100] transition-all duration-500 ease-out opacity-0 translate-y-10; }
-        .modal-message.show { @apply opacity-100 translate-y-0; }
+        #b2c-edit-profile-form input, #b2c-change-password-form input {
+            @apply mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-brand-primary focus:border-brand-primary sm:text-sm;
+        }
+         #b2c-edit-profile-form label, #b2c-change-password-form label {
+            @apply block text-sm font-medium text-brand-dark-taupe;
+        }
     </style>
 </head>
-<body id="page-compte" class="antialiased">
+<body class="bg-brand-light font-sans text-brand-dark-taupe">
 
     <div id="header-placeholder"></div>
 
-    <main class="bg-brand-cream">
-        <section id="login-register-section" class="py-16">
-            <div class="container mx-auto px-4 sm:px-6 lg:px-8 max-w-lg">
-                <div class="bg-white shadow-xl rounded-lg p-8 md:p-12">
-                    <h1 class="page-header text-2xl md:text-3xl">Mon Compte</h1>
-                    
-                    <form id="login-form" class="mb-10">
-                        <h2 class="text-xl font-serif text-brand-near-black mb-5">Déjà client ? Connectez-vous</h2>
-                        <div id="login-message" class="text-sm text-brand-truffle-burgundy mb-4"></div> 
-                        <div class="space-y-5">
-                            <div>
-                                <label for="login-email" class="block text-sm font-medium text-brand-near-black mb-1">Adresse e-mail</label>
-                                <input type="email" id="login-email" name="email" class="form-input-checkout" required>
-                            </div>
-                            <div>
-                                <label for="login-password" class="block text-sm font-medium text-brand-near-black mb-1">Mot de passe</label>
-                                <input type="password" id="login-password" name="password" class="form-input-checkout" required>
-                                <a href="#" onclick="event.preventDefault(); showGlobalMessage('Fonctionnalité de mot de passe oublié non implémentée.', 'info');" class="text-xs text-brand-warm-taupe hover:text-brand-classic-gold block mt-1 text-right">Mot de passe oublié ?</a>
-                            </div>
-                            <button type="submit" class="btn-primary w-full py-3">Se connecter</button>
-                        </div>
-                    </form>
+    <main class="container mx-auto px-4 py-8 mt-16">
+        <h1 class="text-3xl font-serif text-brand-primary mb-8" data-i18n="account.pageTitle">Mon Compte</h1>
 
-                    <form id="register-form" class="mb-10 mt-10 border-t pt-6" style="display:none;"> <h2 class="text-xl font-serif text-brand-near-black mb-5" data-translate-key="Creer_un_compte_bouton">Créer un compte</h2>
-                        <div id="register-message" class="text-sm text-brand-truffle-burgundy mb-4"></div>
-                        <div class="space-y-5">
-                            <div>
-                                <label for="register-prenom" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Prenom">Prénom</label>
-                                <input type="text" id="register-prenom" name="prenom" class="form-input-checkout" required>
-                            </div>
-                            <div>
-                                <label for="register-nom" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Nom">Nom</label>
-                                <input type="text" id="register-nom" name="nom" class="form-input-checkout" required>
-                            </div>
-                            <div>
-                                <label for="register-email" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Adresse_e-mail">Adresse e-mail</label>
-                                <input type="email" id="register-email" name="email" class="form-input-checkout" required>
-                            </div>
-                            <div>
-                                <label for="register-password" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Mot_de_passe">Mot de passe</label>
-                                <input type="password" id="register-password" name="password" class="form-input-checkout" required minlength="8">
-                            </div>
-                            <div>
-                                <label for="register-confirm-password" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Confirmer_mot_de_passe">Confirmer le mot de passe</label>
-                                <input type="password" id="register-confirm-password" name="confirm_password" class="form-input-checkout" required minlength="8">
-                            </div>
-                            <button type="submit" class="btn-primary w-full py-3" data-translate-key="Creer_un_compte_bouton">Créer un compte</button>
-                            <p class="text-center mt-4">
-                                <a href="#" id="show-login-link" class="text-sm text-brand-classic-gold hover:underline" data-translate-key="Deja_client_Connectez-vous">Déjà client ? Connectez-vous</a>
-                            </p>
+        <div id="loading-account" class="text-center py-10">
+            <i class="fas fa-spinner fa-spin text-3xl text-brand-primary"></i>
+            <p class="mt-2" data-i18n="account.loading">Chargement des informations du compte...</p>
+        </div>
+
+        <section id="login-register-section" class="hidden bg-white p-6 md:p-8 rounded-lg shadow-lg">
+            <div class="grid md:grid-cols-2 gap-8">
+                <div>
+                    <h2 class="text-2xl font-serif text-brand-primary mb-4" data-i18n="account.loginTitle">Se Connecter</h2>
+                    <form id="login-form" class="space-y-4">
+                        <div>
+                            <label for="login-email" class="block text-sm font-medium" data-i18n="account.email">Email</label>
+                            <input type="email" id="login-email" name="email" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-primary focus:border-brand-primary">
                         </div>
+                        <div>
+                            <label for="login-password" class="block text-sm font-medium" data-i18n="account.password">Mot de passe</label>
+                            <input type="password" id="login-password" name="password" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-primary focus:border-brand-primary">
+                        </div>
+                         <div>
+                            <label for="login-role" class="block text-sm font-medium" data-i18n="account.accountType">Type de compte</label>
+                            <select id="login-role" name="role" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-primary focus:border-brand-primary">
+                                <option value="b2c" data-i18n="account.typeB2C">Particulier</option>
+                                <option value="b2b" data-i18n="account.typeB2B">Professionnel</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="w-full bg-brand-primary hover:bg-brand-secondary text-white font-semibold py-2 px-4 rounded-md transition duration-150" data-i18n="account.loginButton">Se Connecter</button>
+                        <p class="text-sm text-center"><a href="reset-password.html" class="text-brand-secondary hover:underline" data-i18n="account.forgotPassword">Mot de passe oublié ?</a></p>
                     </form>
-                    
-                    <div id="new-customer-section"> <h2 class="text-xl font-serif text-brand-near-black mb-4" data-translate-key="Nouveau_client">Nouveau client ?</h2>
-                        <p class="text-brand-earth-brown mb-5 text-sm" data-translate-key="Creer_un_compte_texte">Créez un compte pour suivre vos commandes, enregistrer vos informations et plus encore.</p>
-                        <button id="show-register-form-button" class="btn-secondary w-full py-3" data-translate-key="Creer_un_compte_bouton">Créer un compte</button>
-                    </div>
-                                        
+                </div>
+
+                <div>
+                    <h2 class="text-2xl font-serif text-brand-primary mb-4" data-i18n="account.registerTitle">Créer un Compte</h2>
+                    <form id="register-form" class="space-y-4">
+                        <div>
+                            <label for="register-name" class="block text-sm font-medium" data-i18n="account.name">Nom complet</label>
+                            <input type="text" id="register-name" name="name" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-primary focus:border-brand-primary">
+                        </div>
+                        <div>
+                            <label for="register-email" class="block text-sm font-medium" data-i18n="account.email">Email</label>
+                            <input type="email" id="register-email" name="email" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-primary focus:border-brand-primary">
+                        </div>
+                        <div>
+                            <label for="register-password" class="block text-sm font-medium" data-i18n="account.password">Mot de passe</label>
+                            <input type="password" id="register-password" name="password" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-primary focus:border-brand-primary">
+                            <p class="text-xs text-gray-500 mt-1" data-i18n="account.passwordHint">Min. 8 caractères, avec majuscule, minuscule et chiffre.</p>
+                        </div>
+                        <button type="submit" class="w-full bg-brand-accent hover:opacity-90 text-brand-primary font-semibold py-2 px-4 rounded-md transition duration-150" data-i18n="account.registerButton">Créer mon compte</button>
+                        <p class="text-sm text-center" data-i18n="account.professionalPrompt">Vous êtes un professionnel ? <a href="professionnels.html" class="text-brand-secondary hover:underline" data-i18n="account.professionalLink">Créez un compte Pro</a>.</p>
+                    </form>
+                </div>
+            </div>
+            <div id="auth-message" class="mt-4 text-center"></div>
+        </section>
+
+        <section id="b2c-account-view" class="hidden bg-white p-6 md:p-8 rounded-lg shadow-lg space-y-6">
+            <div>
+                <h2 class="text-2xl font-serif text-brand-primary mb-2" data-i18n="account.welcome">Bienvenue, <span id="b2c-user-name" class="font-semibold"></span>!</h2>
+                <p class="text-brand-dark-taupe" data-i18n="account.b2cDashboardIntro">Gérez vos informations personnelles, vos adresses et consultez l'historique de vos commandes.</p>
+            </div>
+
+            <div class="border-t border-gray-200 pt-6">
+                <h3 class="text-xl font-serif text-brand-primary mb-4" data-i18n="account.myInformation">Mes Informations Personnelles</h3>
+                <div id="b2c-profile-display" class="space-y-2 text-brand-dark-taupe">
+                    <p><strong data-i18n="account.name">Nom:</strong> <span id="display-b2c-name"></span></p>
+                    <p><strong data-i18n="account.email">Email:</strong> <span id="display-b2c-email"></span></p>
+                    <p><strong data-i18n="account.phone">Téléphone:</strong> <span id="display-b2c-phone"></span></p>
+                    <p><strong data-i18n="account.shippingAddress">Adresse de livraison:</strong> <span id="display-b2c-shipping-address"></span></p>
+                    <p><strong data-i18n="account.billingAddress">Adresse de facturation:</strong> <span id="display-b2c-billing-address"></span></p>
+                </div>
+                <button id="show-edit-profile-form-btn" class="mt-4 bg-brand-secondary hover:bg-brand-primary text-white font-semibold py-2 px-4 rounded-md transition duration-150 text-sm" data-i18n="account.editInformation">
+                    <i class="fas fa-edit mr-2"></i>Modifier mes informations
+                </button>
+                 <button id="show-change-password-form-btn" class="mt-4 ml-2 bg-gray-300 hover:bg-gray-400 text-brand-dark-taupe font-semibold py-2 px-4 rounded-md transition duration-150 text-sm" data-i18n="account.changePasswordButton">
+                    <i class="fas fa-key mr-2"></i>Changer de mot de passe
+                </button>
+            </div>
+
+            <div id="b2c-edit-profile-form-container" class="hidden border-t border-gray-200 pt-6">
+                <h3 class="text-xl font-serif text-brand-primary mb-4" data-i18n="account.editProfileTitle">Modifier mon profil</h3>
+                <form id="b2c-edit-profile-form" class="space-y-4">
                     <div>
-                        <h2 class="text-xl font-serif text-brand-near-black mb-4">Nouveau client ?</h2>
-                        <p class="text-brand-earth-brown mb-5 text-sm">Créez un compte pour suivre vos commandes, enregistrer vos informations et plus encore.</p>
-                        <button class="btn-secondary w-full py-3">Créer un compte</button> </div>
-                </div>
-            </div>
-        </section>
-        
-        <section id="account-dashboard-section" style="display:none;" class="py-16">
-            <div class="container mx-auto px-4 sm:px-6 lg:px-8 max-w-2xl">
-                <div class="bg-white shadow-xl rounded-lg p-8 md:p-12">
-                    <h1 class="page-header text-2xl md:text-3xl">Mon Espace Client</h1>
-                    <div class="space-y-6 text-brand-earth-brown">
-                        <p>Bonjour, <strong id="dashboard-username" class="text-brand-near-black"></strong> !</p>
-                        <p><strong>Email :</strong> <span id="dashboard-email"></span></p>
-                        
-                        <div>
-                            <h2 class="text-xl font-serif text-brand-near-black mt-8 mb-4">Mes Commandes</h2>
-                            <div id="order-history-container">
-                                <p class="text-sm text-brand-warm-taupe italic">Votre historique de commandes apparaîtra ici.</p>
-                            </div>
-                        </div>
-        
-                        <div>
-                            <h2 class="text-xl font-serif text-brand-near-black mt-8 mb-4">Mes Informations</h2>
-                            <button class="btn-secondary text-sm" onclick="showGlobalMessage('Modification des informations non implémentée.', 'info');">Modifier mes informations</button>
-                        </div>
-        
-                        <div class="mt-10">
-                            <button id="logout-button" class="btn-primary bg-brand-truffle-burgundy hover:bg-opacity-80 w-full sm:w-auto py-2.5">Se déconnecter</button>
-                        </div>
+                        <label for="edit-b2c-name" data-i18n="account.name">Nom complet</label>
+                        <input type="text" id="edit-b2c-name" name="name" required>
                     </div>
+                    <div>
+                        <label for="edit-b2c-email" data-i18n="account.email">Email</label>
+                        <input type="email" id="edit-b2c-email" name="email" required>
+                    </div>
+                    <div>
+                        <label for="edit-b2c-phone" data-i18n="account.phone">Téléphone</label>
+                        <input type="tel" id="edit-b2c-phone" name="phone">
+                    </div>
+                    <div>
+                        <label for="edit-b2c-shipping-address" data-i18n="account.shippingAddress">Adresse de livraison</label>
+                        <input type="text" id="edit-b2c-shipping-address" name="address_shipping">
+                    </div>
+                    <div>
+                        <label for="edit-b2c-billing-address" data-i18n="account.billingAddress">Adresse de facturation</label>
+                        <input type="text" id="edit-b2c-billing-address" name="address_billing">
+                    </div>
+                    <div class="flex space-x-3">
+                        <button type="submit" class="bg-brand-primary hover:bg-brand-secondary text-white font-semibold py-2 px-4 rounded-md transition duration-150" data-i18n="account.saveChanges">Enregistrer</button>
+                        <button type="button" id="cancel-edit-profile-btn" class="bg-gray-200 hover:bg-gray-300 text-brand-dark-taupe font-semibold py-2 px-4 rounded-md transition duration-150" data-i18n="form.cancel">Annuler</button>
+                    </div>
+                    <div id="edit-profile-message" class="mt-2"></div>
+                </form>
+            </div>
+            
+            <div id="b2c-change-password-form-container" class="hidden border-t border-gray-200 pt-6">
+                <h3 class="text-xl font-serif text-brand-primary mb-4" data-i18n="account.changePasswordTitle">Changer mon mot de passe</h3>
+                <form id="b2c-change-password-form" class="space-y-4">
+                    <div>
+                        <label for="current-password" data-i18n="account.currentPassword">Mot de passe actuel</label>
+                        <input type="password" id="current-password" name="current_password" required>
+                    </div>
+                    <div>
+                        <label for="new-password" data-i18n="account.newPassword">Nouveau mot de passe</label>
+                        <input type="password" id="new-password" name="new_password" required>
+                         <p class="text-xs text-gray-500 mt-1" data-i18n="account.passwordHint">Min. 8 caractères, avec majuscule, minuscule et chiffre.</p>
+                    </div>
+                    <div>
+                        <label for="confirm-new-password" data-i18n="account.confirmNewPassword">Confirmer le nouveau mot de passe</label>
+                        <input type="password" id="confirm-new-password" name="confirm_new_password" required>
+                    </div>
+                     <div class="flex space-x-3">
+                        <button type="submit" class="bg-brand-primary hover:bg-brand-secondary text-white font-semibold py-2 px-4 rounded-md transition duration-150" data-i18n="account.updatePasswordButton">Mettre à jour</button>
+                        <button type="button" id="cancel-change-password-btn" class="bg-gray-200 hover:bg-gray-300 text-brand-dark-taupe font-semibold py-2 px-4 rounded-md transition duration-150" data-i18n="form.cancel">Annuler</button>
+                    </div>
+                    <div id="change-password-message" class="mt-2"></div>
+                </form>
+            </div>
+
+
+            <div class="border-t border-gray-200 pt-6">
+                <h3 class="text-xl font-serif text-brand-primary mb-4" data-i18n="account.orderHistory">Historique des Commandes</h3>
+                <div id="b2c-order-history" class="space-y-3">
+                    <p data-i18n="account.noOrders">Vous n'avez pas encore passé de commande.</p>
                 </div>
             </div>
+
+            <button id="logout-button" class="w-full md:w-auto mt-6 bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-6 rounded-md transition duration-150" data-i18n="account.logout">
+                <i class="fas fa-sign-out-alt mr-2"></i>Se Déconnecter
+            </button>
         </section>
+
+        <section id="b2b-account-view" class="hidden bg-white p-6 md:p-8 rounded-lg shadow-lg space-y-6">
+            <div>
+                <h2 class="text-2xl font-serif text-brand-primary mb-2" data-i18n="account.welcome">Bienvenue, <span id="b2b-contact-name" class="font-semibold"></span> (<span id="b2b-company-name" class="font-normal"></span>)!</h2>
+                <p id="b2b-account-status" class="mb-4"></p>
+                <p class="text-brand-dark-taupe" data-i18n="account.b2bDashboardIntro">Gérez les informations de votre entreprise, vos adresses et consultez l'historique de vos factures.</p>
+            </div>
+
+             <div class="border-t border-gray-200 pt-6">
+                <h3 class="text-xl font-serif text-brand-primary mb-4" data-i18n="account.myCompanyInformation">Informations de l'entreprise</h3>
+                <div id="b2b-profile-display" class="space-y-2 text-brand-dark-taupe">
+                    <p><strong data-i18n="account.companyName">Raison sociale:</strong> <span id="display-b2b-company-name"></span></p>
+                    <p><strong data-i18n="account.siret">SIRET:</strong> <span id="display-b2b-siret"></span></p>
+                    <p><strong data-i18n="account.vatNumber">N° TVA:</strong> <span id="display-b2b-vat"></span></p>
+                    <p><strong data-i18n="account.contactName">Nom du contact:</strong> <span id="display-b2b-contact-name"></span></p>
+                    <p><strong data-i18n="account.email">Email:</strong> <span id="display-b2b-email"></span></p>
+                    <p><strong data-i18n="account.phone">Téléphone:</strong> <span id="display-b2b-phone"></span></p>
+                    <p><strong data-i18n="account.billingAddress">Adresse de facturation:</strong> <span id="display-b2b-billing-address"></span></p>
+                    <p><strong data-i18n="account.shippingAddress">Adresse de livraison:</strong> <span id="display-b2b-shipping-address"></span></p>
+                </div>
+                <button id="show-edit-b2b-profile-form-btn" class="mt-4 bg-brand-secondary hover:bg-brand-primary text-white font-semibold py-2 px-4 rounded-md transition duration-150 text-sm" data-i18n="account.editCompanyInformation">
+                    <i class="fas fa-edit mr-2"></i>Modifier les informations de contact/livraison
+                </button>
+                 <button id="show-b2b-change-password-form-btn" class="mt-4 ml-2 bg-gray-300 hover:bg-gray-400 text-brand-dark-taupe font-semibold py-2 px-4 rounded-md transition duration-150 text-sm" data-i18n="account.changePasswordButton">
+                    <i class="fas fa-key mr-2"></i>Changer de mot de passe
+                </button>
+            </div>
+             <div id="b2b-edit-profile-form-container" class="hidden border-t border-gray-200 pt-6">
+                <h3 class="text-xl font-serif text-brand-primary mb-4" data-i18n="account.editB2BProfileTitle">Modifier mes informations de contact et livraison</h3>
+                <form id="b2b-edit-profile-form" class="space-y-4">
+                    <div>
+                        <label for="edit-b2b-contact-name" data-i18n="account.contactName">Nom du contact</label>
+                        <input type="text" id="edit-b2b-contact-name" name="contact_name" required class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-brand-primary focus:border-brand-primary sm:text-sm">
+                    </div>
+                    <div>
+                        <label for="edit-b2b-phone" data-i18n="account.phone">Téléphone</label>
+                        <input type="tel" id="edit-b2b-phone" name="phone" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-brand-primary focus:border-brand-primary sm:text-sm">
+                    </div>
+                    <div>
+                        <label for="edit-b2b-shipping-address" data-i18n="account.shippingAddress">Adresse de livraison</label>
+                        <input type="text" id="edit-b2b-shipping-address" name="shipping_address" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-brand-primary focus:border-brand-primary sm:text-sm">
+                    </div>
+                    <p class="text-sm text-gray-600" data-i18n="account.b2bEditInfoNote">Pour modifier la raison sociale, SIRET, N°TVA, ou l'adresse de facturation, veuillez contacter notre support.</p>
+                    <div class="flex space-x-3">
+                        <button type="submit" class="bg-brand-primary hover:bg-brand-secondary text-white font-semibold py-2 px-4 rounded-md transition duration-150" data-i18n="account.saveChanges">Enregistrer</button>
+                        <button type="button" id="cancel-edit-b2b-profile-btn" class="bg-gray-200 hover:bg-gray-300 text-brand-dark-taupe font-semibold py-2 px-4 rounded-md transition duration-150" data-i18n="form.cancel">Annuler</button>
+                    </div>
+                    <div id="edit-b2b-profile-message" class="mt-2"></div>
+                </form>
+            </div>
+             <div id="b2b-change-password-form-container" class="hidden border-t border-gray-200 pt-6">
+                <h3 class="text-xl font-serif text-brand-primary mb-4" data-i18n="account.changePasswordTitle">Changer mon mot de passe</h3>
+                <form id="b2b-change-password-form" class="space-y-4">
+                    <div>
+                        <label for="b2b-current-password" data-i18n="account.currentPassword">Mot de passe actuel</label>
+                        <input type="password" id="b2b-current-password" name="current_password" required class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-brand-primary focus:border-brand-primary sm:text-sm">
+                    </div>
+                    <div>
+                        <label for="b2b-new-password" data-i18n="account.newPassword">Nouveau mot de passe</label>
+                        <input type="password" id="b2b-new-password" name="new_password" required class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-brand-primary focus:border-brand-primary sm:text-sm">
+                         <p class="text-xs text-gray-500 mt-1" data-i18n="account.passwordHint">Min. 8 caractères, avec majuscule, minuscule et chiffre.</p>
+                    </div>
+                    <div>
+                        <label for="b2b-confirm-new-password" data-i18n="account.confirmNewPassword">Confirmer le nouveau mot de passe</label>
+                        <input type="password" id="b2b-confirm-new-password" name="confirm_new_password" required class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-brand-primary focus:border-brand-primary sm:text-sm">
+                    </div>
+                     <div class="flex space-x-3">
+                        <button type="submit" class="bg-brand-primary hover:bg-brand-secondary text-white font-semibold py-2 px-4 rounded-md transition duration-150" data-i18n="account.updatePasswordButton">Mettre à jour</button>
+                        <button type="button" id="cancel-b2b-change-password-btn" class="bg-gray-200 hover:bg-gray-300 text-brand-dark-taupe font-semibold py-2 px-4 rounded-md transition duration-150" data-i18n="form.cancel">Annuler</button>
+                    </div>
+                    <div id="b2b-change-password-message" class="mt-2"></div>
+                </form>
+            </div>
+
+
+            <div class="border-t border-gray-200 pt-6">
+                <h3 class="text-xl font-serif text-brand-primary mb-4" data-i18n="account.invoiceHistory">Historique des Factures</h3>
+                <div id="b2b-invoice-history" class="space-y-3">
+                    <p data-i18n="account.noInvoices">Vous n'avez pas encore de facture.</p>
+                </div>
+            </div>
+
+            <button id="b2b-logout-button" class="w-full md:w-auto mt-6 bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-6 rounded-md transition duration-150" data-i18n="account.logout">
+                 <i class="fas fa-sign-out-alt mr-2"></i>Se Déconnecter
+            </button>
+        </section>
+        
+        <div id="order-detail-modal" class="modal">
+            <div class="modal-content">
+                <span class="close-button" id="close-order-detail-modal">&times;</span>
+                <h3 class="text-xl font-serif text-brand-primary mb-4" data-i18n="account.orderDetailsTitle">Détails de la Commande</h3>
+                <div id="order-detail-content" class="text-sm">
+                    </div>
+            </div>
+        </div>
+
     </main>
 
     <div id="footer-placeholder"></div>
-
-    <div id="global-message-toast" class="modal-message">
-        <p id="global-message-text"></p>
-    </div>
     
+    <div id="global-message" class="hidden fixed bottom-5 right-5 bg-brand-primary text-white p-4 rounded-lg shadow-md z-50">
+        <p id="global-message-text"></p>
+        <button id="close-global-message" class="ml-4 text-xl">&times;</button>
+    </div>
+
+
     <script src="js/config.js"></script>
-    <script src="js/i18n.js"></script>
-    <script src="js/ui.js"></script>
     <script src="js/api.js"></script>
     <script src="js/auth.js"></script>
-    <script src="js/cart.js"></script>
-    <script src="js/product.js"></script>
-    <script src="js/checkout.js"></script>
-    <script src="js/newsletter.js"></script>
-    <script src="js/main.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/i18n.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Load header and footer
+            try {
+                const headerResponse = await fetch('header.html');
+                const headerHtml = await headerResponse.text();
+                document.getElementById('header-placeholder').innerHTML = headerHtml;
+
+                const footerResponse = await fetch('footer.html');
+                const footerHtml = await footerResponse.text();
+                document.getElementById('footer-placeholder').innerHTML = footerHtml;
+                
+                // Initialize i18n after header/footer are loaded if they contain i18n elements
+                // Or if i18n.js handles its own initialization correctly
+                 if (window.initializeI18n) {
+                    await window.initializeI18n();
+                }
+                // Then initialize other UI elements that might depend on i18n
+                if (window.initCartIcon) initCartIcon(); // From ui.js
+                if (window.setupLanguageSwitcher) setupLanguageSwitcher(); // from ui.js or i18n.js
+            } catch (error) {
+                console.error("Error loading header/footer:", error);
+            }
+            
+            // Initialize account page logic
+            if (window.initAccountPage) {
+                initAccountPage();
+            }
+
+            // Close global message
+            const closeGlobalMessageBtn = document.getElementById('close-global-message');
+            if(closeGlobalMessageBtn) {
+                closeGlobalMessageBtn.addEventListener('click', () => {
+                    document.getElementById('global-message').classList.add('hidden');
+                });
+            }
+        });
+    </script>
 </body>
 </html>
-
