@@ -1,31 +1,48 @@
 // File: website/admin/js/admin_api.js
 
-const API_BASE_URL = 'http://127.0.0.1:5000/api/admin'; // Your backend admin API base URL
-const AUTH_BASE_URL = 'http://127.0.0.1:5000/auth'; // Your backend auth API base URL
+// Ensure API_BASE_URL and AUTH_BASE_URL are defined (e.g., from admin_config.js or a global config)
+// These fallbacks are illustrative; a proper config setup is better.
+const ADMIN_API_BASE_URL = window.ADMIN_API_BASE_URL || 'http://127.0.0.1:5000/api/admin';
+const ADMIN_AUTH_BASE_URL = window.ADMIN_AUTH_BASE_URL || 'http://127.0.0.1:5000/auth';
+
+// Custom Error class for Admin API responses
+class AdminApiError extends Error {
+    constructor(message, status, errorCode = null, details = null) {
+        super(message);
+        this.name = 'AdminApiError';
+        this.status = status;
+        this.errorCode = errorCode;
+        this.details = details;
+    }
+}
 
 const adminApi = {
     /**
-     * Helper function to make authenticated API requests.
+     * Helper function to make authenticated API requests for the admin panel.
      * @param {string} endpoint - The API endpoint (e.g., '/products').
-     * @param {string} method - HTTP method (GET, POST, PUT, DELETE).
-     * @param {object|FormData|null} [body=null] - Request body for POST/PUT.
+     * @param {string} method - HTTP method (GET, POST, PUT, DELETE, PATCH).
+     * @param {object|FormData|null} [body=null] - Request body for POST/PUT/PATCH.
      * @param {boolean} [isFormData=false] - Set to true if body is FormData.
      * @returns {Promise<object>} - The JSON response from the API.
+     * @throws {AdminApiError} - For API or network errors.
      */
     async request(endpoint, method = 'GET', body = null, isFormData = false) {
-        const token = getAdminAuthToken(); // Function from admin_auth.js
-        // Allow requests to login/auth endpoints without a token
-        const isAuthEndpoint = endpoint.startsWith(AUTH_BASE_URL) || (API_BASE_URL + endpoint).includes('/login');
-
+        const token = typeof getAdminAuthToken === 'function' ? getAdminAuthToken() : localStorage.getItem('adminAuthToken');
+        
+        // Determine if the endpoint is for authentication (login, refresh token etc.)
+        // These might not require a token or have different auth handling.
+        const isAuthEndpoint = endpoint.startsWith(ADMIN_AUTH_BASE_URL) || 
+                               (ADMIN_API_BASE_URL + endpoint).includes('/login') ||
+                               (ADMIN_API_BASE_URL + endpoint).includes('/refresh'); // Add other auth endpoints if any
 
         if (!token && !isAuthEndpoint) {
-            console.error('Admin token not found for non-auth endpoint.');
-            // This should ideally be handled by ensureAdminAuthenticated on page load
-            // but as a fallback:
+            console.error('Admin token not found for non-auth endpoint:', endpoint);
             if (typeof ensureAdminAuthenticated === 'function') {
                  ensureAdminAuthenticated(); // Attempt to redirect
             }
-            throw new Error('Authentication required. Please log in again.');
+            const authRequiredMsg = typeof t === 'function' ? t('admin_auth_required_redirecting') : 'Authentication required. Please log in again.';
+            // No global message here, redirection should handle it.
+            throw new AdminApiError(authRequiredMsg, 401, 'ADMIN_AUTH_REQUIRED');
         }
 
         const headers = {};
@@ -33,12 +50,13 @@ const adminApi = {
             headers['Authorization'] = `Bearer ${token}`;
         }
 
-        if (!isFormData && body && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
+        if (!isFormData && body && ['POST', 'PUT', 'PATCH'].includes(method.toUpperCase())) {
             headers['Content-Type'] = 'application/json';
         }
+        // For GET requests, Content-Type is usually not needed.
 
         const config = {
-            method: method,
+            method: method.toUpperCase(),
             headers: headers,
         };
 
@@ -46,68 +64,88 @@ const adminApi = {
             config.body = isFormData ? body : JSON.stringify(body);
         }
         
-        const fullUrl = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
-
+        const fullUrl = endpoint.startsWith('http') ? endpoint : `${ADMIN_API_BASE_URL}${endpoint}`;
 
         try {
             const response = await fetch(fullUrl, config);
             let responseData;
+            const responseText = await response.text();
 
             if (response.status === 401 && !isAuthEndpoint) {
-                console.error('Admin token expired or invalid.');
+                console.error('Admin token expired or invalid for:', fullUrl);
                 if (typeof clearAdminAuthToken === 'function') clearAdminAuthToken();
                 if (typeof ensureAdminAuthenticated === 'function') ensureAdminAuthenticated(); // Will redirect
-                throw new Error('Your session has expired. Please log in again.');
+                const sessionExpiredMsg = typeof t === 'function' ? t('admin_session_expired') : 'Your session has expired. Please log in again.';
+                throw new AdminApiError(sessionExpiredMsg, 401, 'ADMIN_SESSION_EXPIRED');
             }
 
-            const responseText = await response.text();
             try {
-                responseData = responseText ? JSON.parse(responseText) : {}; // Default to empty object if no text
-            } catch (e) {
-                // If parsing fails but response is OK, it might be an intentional empty response or non-JSON
-                if (response.ok && !responseText) { // Successful empty response
-                    return { message: "Operation successful." };
-                } else if (response.ok && responseText) { // Successful non-JSON response
-                     return { message: responseText };
+                if (responseText) {
+                    responseData = JSON.parse(responseText);
+                } else if (response.status === 204) { // No Content
+                    return { success: true, message: typeof t === 'function' ? t('admin_operation_successful_no_content') : "Operation successful (no content).", status: 204 };
+                } else if (response.ok) { // OK status but empty body not 204
+                    return { success: true, message: typeof t === 'function' ? t('admin_operation_successful') : "Operation successful.", status: response.status };
                 }
-                // If parsing fails and response is not OK
-                console.error("Failed to parse JSON response:", responseText);
-                throw new Error(`Server returned non-JSON error. Status: ${response.status} - ${response.statusText}. Response: ${responseText.substring(0,150)}...`);
+            } catch (e) {
+                if (!response.ok) {
+                    console.error(`Failed to parse JSON error response from ${method} ${fullUrl}. Status: ${response.status}. Response: ${responseText.substring(0, 200)}`);
+                    const serverErrorMsg = typeof t === 'function' ? t('admin_server_invalid_error_format') : "Server returned an invalid error format.";
+                    throw new AdminApiError(serverErrorMsg, response.status, 'ADMIN_INVALID_JSON_RESPONSE');
+                }
+                // If response.ok but parsing failed (e.g. successful HTML page returned instead of JSON)
+                console.warn(`Successfully fetched from ${method} ${fullUrl} (Status: ${response.status}) but failed to parse expected JSON response. Response: ${responseText.substring(0,200)}`);
+                // This could be an issue with the endpoint or an unexpected response.
+                // Let's assume for admin, if it's 2xx and not 204, it should be JSON.
+                const parseFailMsg = typeof t === 'function' ? t('admin_api_unexpected_response_format') : "API returned an unexpected response format.";
+                throw new AdminApiError(parseFailMsg, response.status, 'ADMIN_UNEXPECTED_FORMAT');
             }
 
             if (!response.ok) {
-                // Prefer specific error message from backend if available
-                const errorMessage = responseData.error || responseData.message || `Request failed with status ${response.status}.`;
-                console.error(`API Error (${response.status}):`, errorMessage, responseData);
-                throw new Error(errorMessage);
+                const errorMessage = responseData?.message || responseData?.error || (typeof t === 'function' ? t('admin_error_http_status', { status: response.status }) : `Request failed with status ${response.status}.`);
+                const errorCode = responseData?.error_code || responseData?.errorCode || null;
+                const errorDetails = responseData?.details || null;
+                console.error(`Admin API Error (${response.status}) for ${method} ${fullUrl}:`, errorMessage, responseData);
+                throw new AdminApiError(errorMessage, response.status, errorCode, errorDetails);
             }
             
-            // Ensure a message field for successful operations if none is provided by backend
-            if(response.ok && !responseData.message && Object.keys(responseData).length === 0 && (method === 'POST' || method === 'PUT' || method === 'DELETE')) {
-                 // For successful POST/PUT/DELETE that might return 200 OK with empty body or just data
-                 // and we want to provide a default success message if the calling function expects one.
-                 // However, usually the calling function will craft its own success message based on context.
-                 // So, it's better to return the data as is.
-            }
-
-
-            return responseData;
+            return responseData || { success: true, status: response.status };
 
         } catch (error) {
-            console.error(`API Request Failed: ${method} ${fullUrl}`, error);
-            // Standardize network errors
-            if (error.message.toLowerCase().includes("failed to fetch")) {
-                throw new Error("Network error: Could not connect to the server. Please check your internet connection and try again.");
+            if (error instanceof AdminApiError) {
+                // If it's already an AdminApiError, show message and re-throw.
+                // Avoid double-messaging for auth errors handled by redirection.
+                if (error.errorCode !== 'ADMIN_AUTH_REQUIRED' && error.errorCode !== 'ADMIN_SESSION_EXPIRED') {
+                    if (typeof showGlobalMessage === 'function') { // Assumes ui.js is available
+                        showGlobalMessage({ message: error.message, type: 'error' });
+                    } else {
+                        console.error("showGlobalMessage not available. Admin API Error:", error.message);
+                    }
+                }
+                throw error;
             }
-            // Re-throw other errors (already processed or specific)
-            throw error;
+
+            // Network errors or other unexpected errors
+            console.error(`Admin API Request Failed: ${method} ${fullUrl}`, error);
+            let networkErrorMessage = typeof t === 'function' ? t('admin_network_error') : "Network error: Could not connect to the server. Please check your internet connection.";
+            if (error.message && !error.message.toLowerCase().includes("failed to fetch")) {
+                // If it's not a typical "failed to fetch", it might be another JS error during the request process.
+                networkErrorMessage = typeof t === 'function' ? t('admin_unexpected_error_during_request') : "An unexpected error occurred while making the request.";
+            }
+            
+            if (typeof showGlobalMessage === 'function') {
+                showGlobalMessage({ message: networkErrorMessage, type: 'error' });
+            } else {
+                console.error("showGlobalMessage not available. Network/Request Error:", networkErrorMessage);
+            }
+            throw new AdminApiError(networkErrorMessage, 0, 'ADMIN_NETWORK_ERROR', { originalError: error.message });
         }
     },
 
-    // --- Authentication (Example, move to authApi if separating further) ---
+    // --- Authentication ---
     async adminLogin(email, password) {
-        // Note: Login endpoint might be different from API_BASE_URL
-        return this.request(`${AUTH_BASE_URL}/admin/login`, 'POST', { email, password });
+        // Login endpoint might be different from ADMIN_API_BASE_URL
+        return this.request(`${ADMIN_AUTH_BASE_URL}/admin/login`, 'POST', { email, password });
     },
 
     // --- Dashboard ---
@@ -143,10 +181,10 @@ const adminApi = {
     async getProductById(productId) {
         return this.request(`/products/${productId}`, 'GET');
     },
-    async addProduct(formData) {
+    async addProduct(formData) { // formData is FormData
         return this.request('/products', 'POST', formData, true);
     },
-    async updateProduct(productId, formData) {
+    async updateProduct(productId, formData) { // formData is FormData
         return this.request(`/products/${productId}`, 'PUT', formData, true);
     },
     async deleteProduct(productId) {
@@ -165,6 +203,13 @@ const adminApi = {
     async updateUser(userId, userData) {
         return this.request(`/users/${userId}`, 'PUT', userData);
     },
+     async createUser(userData) { // Added for admin user creation
+        return this.request('/users', 'POST', userData);
+    },
+    async deleteUser(userId) { // Added for admin user deletion
+        return this.request(`/users/${userId}`, 'DELETE');
+    },
+
 
     // --- Reviews ---
     async getReviews(searchTerm = '', page = 1, limit = 10) {
@@ -192,7 +237,7 @@ const adminApi = {
     async getOrderById(orderId) {
         return this.request(`/orders/${orderId}`, 'GET');
     },
-    async updateOrderStatus(orderId, statusData) {
+    async updateOrderStatus(orderId, statusData) { // statusData should be { status: "new_status" }
         return this.request(`/orders/${orderId}/status`, 'PUT', statusData);
     },
 
@@ -209,14 +254,13 @@ const adminApi = {
         return this.request(`/invoices/${invoiceId}`, 'GET');
     },
     getInvoicePdfUrl(invoiceId) {
-        const token = getAdminAuthToken();
+        const token = typeof getAdminAuthToken === 'function' ? getAdminAuthToken() : localStorage.getItem('adminAuthToken');
         // If your backend /download route for PDFs is protected by JWT in query param
-        return token ? `${API_BASE_URL}/invoices/${invoiceId}/download?token=${token}` : `${API_BASE_URL}/invoices/${invoiceId}/download`;
-        // If protected by Authorization header, direct <a> link won't work easily.
-        // You might need to fetch the blob and create an object URL for download.
-        // For now, assume direct link or backend handles auth redirection.
+        // This is generally less secure than Authorization header.
+        // Consider fetching as blob if header auth is strict.
+        return token ? `${ADMIN_API_BASE_URL}/invoices/${invoiceId}/download?token=${token}` : `${ADMIN_API_BASE_URL}/invoices/${invoiceId}/download`;
     },
-    async updateInvoiceStatus(invoiceId, statusData) {
+    async updateInvoiceStatus(invoiceId, statusData) { // statusData should be { status: "new_status" }
         return this.request(`/invoices/${invoiceId}/status`, 'PUT', statusData);
     },
     async deleteInvoice(invoiceId) {
@@ -224,25 +268,28 @@ const adminApi = {
     }
 };
 
-// Ensure these are available globally or imported if admin_auth.js is a module
-// These are placeholders if admin_auth.js isn't loaded or structured as expected.
-// It's better to rely on admin_auth.js to provide these.
+// Fallback definitions for auth helper functions if admin_auth.js isn't loaded or structured as expected.
+// It's much better to ensure admin_auth.js provides these globally or they are imported as modules.
 if (typeof getAdminAuthToken === 'undefined') {
+    console.warn("getAdminAuthToken is not defined globally. Using fallback from admin_api.js.");
     window.getAdminAuthToken = function() {
-        return localStorage.getItem('adminAuthToken');
+        return sessionStorage.getItem('adminAuthToken') || localStorage.getItem('adminAuthToken'); // Check both
     };
 }
 if (typeof clearAdminAuthToken === 'undefined') {
+    console.warn("clearAdminAuthToken is not defined globally. Using fallback from admin_api.js.");
     window.clearAdminAuthToken = function() {
+        sessionStorage.removeItem('adminAuthToken');
         localStorage.removeItem('adminAuthToken');
     };
 }
+// ensureAdminAuthenticated should ideally be in admin_main.js or a dedicated auth guard script.
 if (typeof ensureAdminAuthenticated === 'undefined') {
+    console.warn("ensureAdminAuthenticated is not defined globally. Using fallback from admin_api.js.");
     window.ensureAdminAuthenticated = function() {
-        // Basic check, actual redirection logic is in admin_auth.js
         if (!getAdminAuthToken() && !window.location.pathname.endsWith('admin_login.html')) {
-            console.warn("ensureAdminAuthenticated called from admin_api.js fallback: Redirecting (ensure admin_auth.js is loaded).");
-            // window.location.href = 'admin_login.html'; // Simplified
+            console.warn("Fallback ensureAdminAuthenticated: Redirecting to admin_login.html (ensure admin_auth.js or admin_main.js handles this properly).");
+            window.location.href = 'admin_login.html'; 
             return false;
         }
         return true;
