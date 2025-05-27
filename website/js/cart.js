@@ -11,6 +11,13 @@ function getCart() {
     try {
         return cartString ? JSON.parse(cartString) : [];
     } catch (e) {
+        console.error(t('Erreur_parsing_panier_localStorage'), e); // Add key// website/js/cart.js
+
+function getCart() {
+    const cartString = localStorage.getItem('maisonTruvraCart');
+    try {
+        return cartString ? JSON.parse(cartString) : [];
+    } catch (e) {
         console.error(t('Erreur_parsing_panier_localStorage'), e); // Add key
         localStorage.removeItem('maisonTruvraCart');
         return [];
