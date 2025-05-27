@@ -1,0 +1,161 @@
+
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paiement - Maison Trüvra</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'brand-cream': '#F5EEDE',
+                        'brand-near-black': '#11120D',
+                        'brand-classic-gold': '#D4AF37',
+                        'brand-warm-taupe': '#A28C6A',
+                        'brand-earth-brown': '#7D6A4F',
+                        'brand-slate-blue-grey': '#6E7582',
+                        'brand-deep-sage-green': '#4B5A59',
+                        'brand-truffle-burgundy': '#8A3E3E',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #F5EEDE; color: #7D6A4F; }
+        h1, h2, h3, .font-serif { font-family: 'Playfair Display', serif; }
+        .btn-primary { background-color: #7D6A4F; color: #F5EEDE; padding: 0.85rem 1.75rem; border-radius: 0.375rem; transition: background-color 0.3s ease, transform 0.2s ease; font-weight: 500; letter-spacing: 0.025em; display: inline-block; cursor: pointer; }
+        .btn-primary:hover { background-color: #11120D; transform: translateY(-2px); }
+        .btn-gold { background-color: #D4AF37; color: #11120D; padding: 0.85rem 1.75rem; border-radius: 0.375rem; transition: background-color 0.3s ease, opacity 0.3s ease, transform 0.2s ease; font-weight: 600; display: inline-block; cursor: pointer; }
+        .btn-gold:hover { background-color: #D4AF37; opacity: 0.85; transform: translateY(-2px); }
+        .form-input-checkout { @apply w-full px-4 py-3 text-brand-near-black bg-white border border-brand-warm-taupe/50 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-classic-gold shadow-sm; }
+        .page-header { @apply text-3xl md:text-4xl font-serif text-brand-near-black mb-8 text-center py-8 bg-white shadow-sm; }
+        .modal-message { @apply fixed bottom-5 right-5 bg-brand-deep-sage-green text-brand-cream p-4 rounded-lg shadow-xl z-[100] transition-all duration-500 ease-out opacity-0 translate-y-10; }
+        .modal-message.show { @apply opacity-100 translate-y-0; }
+        .error-message { @apply text-xs text-red-600 mt-1; }
+    </style>
+</head>
+<body id="page-paiement" class="antialiased">
+
+    <div id="header-placeholder"></div>
+
+    <main class="bg-brand-cream py-12">
+        <div class="container mx-auto px-4 sm:px-6 lg:px-8">
+            <h1 class="page-header">Finaliser ma Commande</h1>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div class="lg:col-span-2 bg-white shadow-lg rounded-lg p-6 md:p-8">
+                    <form id="checkout-form" class="space-y-6">
+                        <section>
+                            <h2 class="text-xl font-serif text-brand-near-black mb-4">Informations de Contact</h2>
+                            <div>
+                                <label for="checkout-email" class="block text-sm font-medium text-brand-near-black mb-1">Adresse e-mail</label>
+                                <input type="email" id="checkout-email" name="email" class="form-input-checkout" required autocomplete="email">
+                            </div>
+                        </section>
+
+                        <section>
+                            <h2 class="text-xl font-serif text-brand-near-black mb-4">Adresse de Livraison</h2>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label for="checkout-firstname" class="block text-sm font-medium text-brand-near-black mb-1">Prénom</label>
+                                    <input type="text" id="checkout-firstname" name="firstname" class="form-input-checkout" required autocomplete="given-name">
+                                </div>
+                                <div>
+                                    <label for="checkout-lastname" class="block text-sm font-medium text-brand-near-black mb-1">Nom</label>
+                                    <input type="text" id="checkout-lastname" name="lastname" class="form-input-checkout" required autocomplete="family-name">
+                                </div>
+                            </div>
+                            <div class="mt-4">
+                                <label for="checkout-address" class="block text-sm font-medium text-brand-near-black mb-1">Adresse</label>
+                                <input type="text" id="checkout-address" name="address" class="form-input-checkout" required placeholder="Numéro et nom de rue" autocomplete="street-address">
+                            </div>
+                            <div class="mt-4">
+                                <label for="checkout-apartment" class="block text-sm font-medium text-brand-near-black mb-1">Appartement, suite, etc. (optionnel)</label>
+                                <input type="text" id="checkout-apartment" name="apartment" class="form-input-checkout" autocomplete="address-line2">
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                                <div>
+                                    <label for="checkout-zipcode" class="block text-sm font-medium text-brand-near-black mb-1">Code Postal</label>
+                                    <input type="text" id="checkout-zipcode" name="zipcode" class="form-input-checkout" required autocomplete="postal-code">
+                                </div>
+                                <div>
+                                    <label for="checkout-city" class="block text-sm font-medium text-brand-near-black mb-1">Ville</label>
+                                    <input type="text" id="checkout-city" name="city" class="form-input-checkout" required autocomplete="address-level2">
+                                </div>
+                                <div>
+                                    <label for="checkout-country" class="block text-sm font-medium text-brand-near-black mb-1">Pays</label>
+                                    <select id="checkout-country" name="country" class="form-input-checkout" required autocomplete="country-name">
+                                        <option value="FR">France</option>
+                                        <option value="BE">Belgique</option>
+                                        <option value="CH">Suisse</option>
+                                        <option value="LU">Luxembourg</option>
+                                    </select>
+                                </div>
+                            </div>
+                             <div class="mt-4">
+                                <label for="checkout-phone" class="block text-sm font-medium text-brand-near-black mb-1">Téléphone (optionnel, pour la livraison)</label>
+                                <input type="tel" id="checkout-phone" name="phone" class="form-input-checkout" autocomplete="tel">
+                            </div>
+                        </section>
+
+                        <section>
+                            <h2 class="text-xl font-serif text-brand-near-black mb-4">Informations de Paiement</h2>
+                            <p class="text-sm text-brand-warm-taupe mb-4">Ce formulaire est une démonstration. Aucune réelle transaction ne sera effectuée.</p>
+                            <div>
+                                <label for="cardholder-name" class="block text-sm font-medium text-brand-near-black mb-1">Nom sur la carte</label>
+                                <input type="text" id="cardholder-name" name="cardholder-name" class="form-input-checkout" required autocomplete="cc-name">
+                            </div>
+                            <div class="mt-4">
+                                <label for="card-number" class="block text-sm font-medium text-brand-near-black mb-1">Numéro de carte</label>
+                                <input type="text" id="card-number" name="card-number" class="form-input-checkout" required placeholder="•••• •••• •••• ••••" autocomplete="cc-number">
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                                <div>
+                                    <label for="card-expiry" class="block text-sm font-medium text-brand-near-black mb-1">Date d'expiration (MM/AA)</label>
+                                    <input type="text" id="card-expiry" name="card-expiry" class="form-input-checkout" required placeholder="MM/AA" autocomplete="cc-exp">
+                                </div>
+                                <div>
+                                    <label for="card-cvc" class="block text-sm font-medium text-brand-near-black mb-1">CVC</label>
+                                    <input type="text" id="card-cvc" name="card-cvc" class="form-input-checkout" required placeholder="•••" autocomplete="cc-csc">
+                                </div>
+                            </div>
+                        </section>
+                        
+                        <div class="pt-6 border-t border-brand-warm-taupe/30">
+                            <button type="submit" class="btn-gold w-full text-lg py-3">Payer et Valider la Commande</button>
+                        </div>
+                    </form>
+                </div>
+
+                <aside class="lg:col-span-1 bg-white shadow-lg rounded-lg p-6 md:p-8 h-fit sticky top-28">
+                    <div id="checkout-cart-summary">
+                        <p class="text-center text-brand-earth-brown">Chargement du récapitulatif...</p>
+                    </div>
+                </aside>
+            </div>
+        </div>
+    </main>
+
+    <div id="footer-placeholder"></div>
+
+    <div id="global-message-toast" class="modal-message">
+        <p id="global-message-text"></p>
+    </div>
+    
+    <script src="js/config.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/cart.js"></script>
+    <script src="js/product.js"></script>
+    <script src="js/checkout.js"></script>
+    <script src="js/newsletter.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
+

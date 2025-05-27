@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Maison Trüvra</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="admin_styles.css"> </head>
+<body class="bg-brand-cream text-brand-earth-brown font-inter">
+    <div class="admin-layout">
+        <aside class="admin-sidebar">
+            <div class="p-6">
+                <a href="admin_dashboard.html">
+                    <img src="../image_6be700.png" alt="Maison Trüvra Logo" class="h-16 mx-auto mb-6" onerror="this.alt='Logo Maison Trüvra'; this.src='https://placehold.co/150x60/F5EEDE/7D6A4F?text=Maison+Trüvra';">
+                </a>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="admin_dashboard.html" class="admin-nav-link active">Tableau de Bord</a></li>
+                    <li><a href="admin_manage_products.html" class="admin-nav-link">Gérer les Produits</a></li>
+                    <li><a href="admin_manage_inventory.html" class="admin-nav-link">Gérer les Stocks</a></li>
+                    <li><a href="admin_manage_users.html" class="admin-nav-link">Gérer les Utilisateurs</a></li>
+                    <li><a href="admin_manage_orders.html" class="admin-nav-link">Gérer les Commandes</a></li>
+                    </ul>
+            </nav>
+            <div class="p-6 mt-auto">
+                <button id="admin-logout-button" class="btn-admin-secondary w-full">Déconnexion</button>
+            </div>
+        </aside>
+
+        <main class="admin-main-content">
+            <header class="admin-main-header">
+                <h1 class="text-3xl font-serif text-brand-near-black">Tableau de Bord</h1>
+                <div id="admin-user-greeting" class="text-sm">Bonjour, Admin!</div>
+            </header>
+
+            <section class="p-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div class="admin-card p-6">
+                        <h2 class="text-xl font-serif text-brand-near-black mb-2">Produits Actifs</h2>
+                        <p id="stats-total-products" class="text-3xl font-bold text-brand-classic-gold">0</p>
+                        <p class="text-xs text-brand-warm-taupe mt-1">Nombre total de produits publiés.</p>
+                    </div>
+
+                    <div class="admin-card p-6">
+                        <h2 class="text-xl font-serif text-brand-near-black mb-2">Commandes Récentes</h2>
+                        <p id="stats-recent-orders" class="text-3xl font-bold text-brand-classic-gold">0</p>
+                        <p class="text-xs text-brand-warm-taupe mt-1">Commandes passées les dernières 24h.</p>
+                    </div>
+
+                    <div class="admin-card p-6">
+                        <h2 class="text-xl font-serif text-brand-near-black mb-2">Nouveaux Utilisateurs</h2>
+                        <p id="stats-new-users" class="text-3xl font-bold text-brand-classic-gold">0</p>
+                        <p class="text-xs text-brand-warm-taupe mt-1">Inscrits cette semaine.</p>
+                    </div>
+                </div>
+
+                <div class="mt-10 admin-card p-6">
+                    <h2 class="text-2xl font-serif text-brand-near-black mb-4">Actions Rapides</h2>
+                    <div class="flex flex-wrap gap-4">
+                        <a href="admin_manage_products.html#add-new-product-section" class="btn-admin-primary">Ajouter un Produit</a>
+                        <a href="admin_manage_inventory.html" class="btn-admin-primary">Ajuster un Stock</a>
+                        <a href="admin_manage_orders.html" class="btn-admin-primary">Voir les Commandes</a>
+                    </div>
+                </div>
+                
+                <div class="mt-10 admin-card p-6">
+                    <h3 class="text-xl font-serif text-brand-near-black mb-3">Notifications Récentes</h3>
+                    <ul id="recent-notifications" class="space-y-2 text-sm">
+                        <li class="text-brand-warm-taupe italic">Aucune nouvelle notification.</li>
+                        </ul>
+                </div>
+
+            </section>
+        </main>
+    </div>
+
+    <div id="admin-toast-container">
+        <div id="admin-message-toast">
+            <p id="admin-message-text"></p>
+        </div>
+    </div>
+
+<script src="website/admin/admin_scripts.js"></script> ```
+with the following block, ensuring correct loading order:
+```html
+<script src="js/admin_config.js"></script>
+<script src="js/admin_ui.js"></script>
+<script src="js/admin_api.js"></script>
+<script src="js/admin_auth.js"></script>
+<script src="js/admin_dashboard.js"></script>
+<script src="js/admin_products.js"></script>
+<script src="js/admin_inventory.js"></script>
+<script src="js/admin_users.js"></script>
+<script src="js/admin_orders.js"></script>
+<script src="js/admin_main.js"></script></body>
+</html>

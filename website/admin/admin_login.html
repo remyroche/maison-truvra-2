@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Login - Maison Trüvra</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'brand-cream': '#F5EEDE',
+                        'brand-near-black': '#11120D',
+                        'brand-classic-gold': '#D4AF37',
+                        'brand-warm-taupe': '#A28C6A',
+                        'brand-earth-brown': '#7D6A4F',
+                        'brand-slate-blue-grey': '#6E7582',
+                        'brand-deep-sage-green': '#4B5A59',
+                        'brand-truffle-burgundy': '#8A3E3E',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {font-family: 'Inter', sans-serif; background-color: #F5EEDE; color: #7D6A4F;}
+        h1, h2, h3, .font-serif {font-family: 'Playfair Display', serif;}
+        .form-input-admin { @apply w-full px-4 py-3 text-brand-near-black bg-white border border-brand-warm-taupe/50 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-classic-gold shadow-sm; }
+        .btn-admin-primary { @apply bg-brand-earth-brown text-brand-cream hover:bg-brand-near-black px-6 py-3 rounded-md font-semibold transition-colors duration-300; }
+        .admin-container { @apply min-h-screen flex flex-col items-center justify-center bg-brand-cream p-4; }
+        .admin-card { @apply bg-white p-8 sm:p-10 rounded-xl shadow-2xl w-full max-w-md; }
+        #admin-message-toast { display: none; position: fixed; bottom: 20px; right: 20px; padding: 1rem; border-radius: 0.375rem; color: white; z-index: 100; }
+        #admin-message-toast.success { background-color: #4B5A59; } /* deep-sage-green */
+        #admin-message-toast.error { background-color: #8A3E3E; } /* truffle-burgundy */
+        #admin-message-toast.info { background-color: #6E7582; } /* slate-blue-grey */
+    </style>
+</head>
+<body class="admin-container">
+    <div class="admin-card">
+        <div class="text-center mb-8">
+            <img src="../image_6be700.png" alt="Logo Maison Trüvra" class="h-20 w-auto mx-auto mb-4" 
+                 onerror="this.alt='Logo Maison Trüvra'; this.src='https://placehold.co/150x60/F5EEDE/7D6A4F?text=Maison+Trüvra';">
+            <h1 class="text-3xl font-serif text-brand-near-black">Administration</h1>
+            <p class="text-brand-warm-taupe">Veuillez vous connecter pour continuer.</p>
+        </div>
+
+        <form id="admin-login-form">
+            <div id="admin-login-message" class="text-sm text-brand-truffle-burgundy mb-4 text-center"></div>
+            <div class="space-y-6">
+                <div>
+                    <label for="admin-email" class="block text-sm font-medium text-brand-near-black mb-1">Adresse e-mail</label>
+                    <input type="email" id="admin-email" name="email" class="form-input-admin" required>
+                </div>
+                <div>
+                    <label for="admin-password" class="block text-sm font-medium text-brand-near-black mb-1">Mot de passe</label>
+                    <input type="password" id="admin-password" name="password" class="form-input-admin" required>
+                </div>
+                <button type="submit" class="btn-admin-primary w-full">Se connecter</button>
+            </div>
+        </form>
+    </div>
+
+    <div id="admin-message-toast">
+        <p id="admin-message-text"></p>
+    </div>
+
+    <script>
+        // Basic admin login script (subset of a full admin_scripts.js)
+        const API_ADMIN_BASE_URL = 'http://127.0.0.1:5001/api'; // Main API, auth is under /auth
+
+        function showAdminToast(message, type = 'info', duration = 3000) {
+            const toast = document.getElementById('admin-message-toast');
+            const textElement = document.getElementById('admin-message-text');
+            if (!toast || !textElement) {
+                alert(message); return;
+            }
+            textElement.textContent = message;
+            toast.className = ''; // Reset
+            toast.classList.add(type);
+            toast.style.display = 'block';
+            setTimeout(() => { toast.style.display = 'none'; }, duration);
+        }
+
+        document.getElementById('admin-login-form').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            const email = document.getElementById('admin-email').value;
+            const password = document.getElementById('admin-password').value;
+            const messageElement = document.getElementById('admin-login-message');
+            messageElement.textContent = '';
+
+            if (!email || !password) {
+                messageElement.textContent = 'Veuillez remplir tous les champs.';
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_ADMIN_BASE_URL}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                const result = await response.json();
+
+                if (response.ok && result.success && result.user && result.user.is_admin) {
+                    sessionStorage.setItem('adminAuthToken', result.token);
+                    sessionStorage.setItem('adminUser', JSON.stringify(result.user));
+                    showAdminToast('Connexion réussie. Redirection...', 'success');
+                    window.location.href = 'admin_dashboard.html';
+                } else if (response.ok && result.success && result.user && !result.user.is_admin) {
+                    messageElement.textContent = 'Accès refusé. Ce compte n\'est pas un administrateur.';
+                    showAdminToast('Accès administrateur requis.', 'error');
+                }
+                else {
+                    messageElement.textContent = result.message || 'E-mail ou mot de passe incorrect.';
+                    showAdminToast(result.message || 'Échec de la connexion.', 'error');
+                }
+            } catch (error) {
+                console.error('Erreur de connexion admin:', error);
+                messageElement.textContent = 'Erreur de communication avec le serveur.';
+                showAdminToast('Erreur de connexion.', 'error');
+            }
+        });
+
+        // Redirect if already logged in as admin
+        if (sessionStorage.getItem('adminAuthToken')) {
+            const adminUser = JSON.parse(sessionStorage.getItem('adminUser'));
+            if (adminUser && adminUser.is_admin) {
+                 // window.location.href = 'admin_dashboard.html'; // Avoid redirect loop if already on login
+            }
+        }
+    </script>
+</body>
+</html>
