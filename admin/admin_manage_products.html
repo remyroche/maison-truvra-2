@@ -1,12 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gérer les Produits - Admin Maison Trüvra</title>
-    <script src="https://cdn.tailwindcss.com"></script><!DOCTYPE html>
-<html lang="fr">
-<head>
+<html lang="fr"> <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gérer les Produits - Admin Maison Trüvra</title>
@@ -105,8 +98,12 @@
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div><label for="product-species-fr" class="form-label-admin">Espèce (FR)</label><input type="text" id="product-species-fr" name="species_fr" class="form-input-admin"></div>
                             <div><label for="product-species-en" class="form-label-admin">Species (EN)</label><input type="text" id="product-species-en" name="species_en" class="form-input-admin"></div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div><label for="product-origin-fr" class="form-label-admin">Origine (FR)</label><input type="text" id="product-origin-fr" name="origin_fr" class="form-input-admin"></div>
                             <div><label for="product-origin-en" class="form-label-admin">Origin (EN)</label><input type="text" id="product-origin-en" name="origin_en" class="form-input-admin"></div>
+                        </div>
+                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div><label for="product-seasonality-fr" class="form-label-admin">Saisonnalité (FR)</label><input type="text" id="product-seasonality-fr" name="seasonality_fr" class="form-input-admin"></div>
                             <div><label for="product-seasonality-en" class="form-label-admin">Seasonality (EN)</label><input type="text" id="product-seasonality-en" name="seasonality_en" class="form-input-admin"></div>
                         </div>
@@ -122,6 +119,7 @@
                             <div><label for="product-pairing-suggestions-fr" class="form-label-admin">Suggestions d'Accords (FR)</label><textarea id="product-pairing-suggestions-fr" name="pairing_suggestions_fr" rows="3" class="form-textarea-admin"></textarea></div>
                             <div><label for="product-pairing-suggestions-en" class="form-label-admin">Pairing Suggestions (EN)</label><textarea id="product-pairing-suggestions-en" name="pairing_suggestions_en" rows="3" class="form-textarea-admin"></textarea></div>
                         </div>
+
 
                         <hr class="my-6 border-brand-warm-taupe/30">
                         <h3 class="text-lg font-semibold text-brand-near-black">Prix et Stock</h3>
@@ -173,7 +171,6 @@
                             </div>
                         </div>
 
-
                         <div class="flex items-center mt-4">
                             <input type="checkbox" id="product-is-published" name="is_published" class="form-checkbox-admin mr-2" checked>
                             <label for="product-is-published" class="text-sm text-brand-near-black">Publier ce produit sur la boutique</label>
@@ -186,11 +183,8 @@
                     </form>
                     <div id="product-assets-preview-section" class="mt-6 p-4 border-t border-brand-warm-taupe/30 rounded-md bg-brand-cream/50" style="display:none;">
                         <h4 class="text-md font-semibold text-brand-near-black mb-3">Aperçu des Actifs Générés :</h4>
-                        <div id="product-assets-links" class="space-y-2 text-sm">
-                            </div>
-                        <p class="text-xs text-brand-warm-taupe mt-3">
-                            Note: Les chemins des images QR Code et Étiquette sont relatifs au dossier statique du site. L'URL du Passeport est l'URL publique.
-                        </p>
+                        <div id="product-assets-links" class="space-y-2 text-sm"></div>
+                        <p class="text-xs text-brand-warm-taupe mt-3">Note: Les chemins QR/Étiquette sont relatifs au dossier statique.</p>
                     </div>
                 </div>
 
@@ -201,7 +195,6 @@
                             <tr>
                                 <th scope="col">ID</th>
                                 <th scope="col">Nom (FR)</th>
-                                <th scope="col">Nom (EN)</th>
                                 <th scope="col">Catégorie</th>
                                 <th scope="col">Prix Base / Variantes</th>
                                 <th scope="col">Stock Total</th>
@@ -210,8 +203,7 @@
                             </tr>
                         </thead>
                         <tbody id="products-table-body">
-                            <tr><td colspan="8" class="text-center py-4">Chargement des produits...</td></tr>
-                        </tbody>
+                            <tr><td colspan="7" class="text-center py-4">Chargement des produits...</td></tr> </tbody>
                     </table>
                 </div>
             </section>
