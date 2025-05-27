@@ -341,4 +341,21 @@
   "Factures_Pour_Utilisateur_Selectionne": "Invoices for selected user:",
   "Numero": "Number",
   "Actions": "Actions"
+  "Pro_Reinitialiser_Mot_De_Passe_Titre": "Reset Password",
+  "Pro_Instructions_Mot_De_Passe_Oublie": "Please enter your email address. If a matching account exists, we will (theoretically) send you a link to reset your password.",
+  "Pro_Envoyer_Lien_Reinitialisation": "Send Reset Link",
+  "Pro_Traitement_Demande_MDP": "Processing your request...",
+  "Pro_Email_Reinitialisation_Envoye_Info": "If your email is in our system, you will receive a password reset link.",
+  "Pro_Email_Reinitialisation_Envoye_Info_Modal": "Please check your inbox (and spam folder) for the reset link.",
+  "Titre_Page_Reinitialiser_MDP": "Reset Password - Maison Trüvra",
+  "Pro_Nouveau_mot_de_passe": "New Password",
+  "Pro_Confirmer_nouveau_mot_de_passe": "Confirm New Password",
+  "Pro_Reinitialiser_Et_Connecter": "Reset Password",
+  "Pro_Retour_Login": "Back to professional login",
+  "Pro_Token_Ou_Email_Manquant_URL": "Token or email missing from URL. Cannot proceed.",
+  "Pro_Token_Ou_Email_Manquant_Impossible_Reinitialiser": "Invalid token or email. Cannot reset password.",
+  "Pro_Reinitialisation_En_Cours": "Resetting password...",
+  "Pro_MDP_Reinitialise_Succes_Connectez_Vous": "Password reset successfully! You can now log in.",
+  "Pro_MDP_Reinitialise_Succes_Connectez_Vous_Modal": "Your password has been changed. Redirecting to login...",
+  "Pro_Erreur_Reinitialisation_MDP": "Error resetting password. The link may be invalid or expired."
 }
