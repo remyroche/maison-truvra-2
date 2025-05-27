@@ -1,220 +1,290 @@
-<!DOCTYPE html>
-<html lang="fr"> <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gérer les Produits - Admin Maison Trüvra</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="admin_styles.css">
-</head>
-<body class="bg-brand-cream text-brand-earth-brown font-inter">
-    <div class="admin-layout">
-        <aside class="admin-sidebar">
-            <div class="p-6"><a href="admin_dashboard.html"><img src="../image_6be700.png" alt="Maison Trüvra Logo" class="h-16 mx-auto mb-6" onerror="this.alt='Logo Maison Trüvra'; this.src='https://placehold.co/150x60/F5EEDE/7D6A4F?text=Maison+Trüvra';"></a></div>
-            <nav>
-                <ul>
-                    <li><a href="admin_dashboard.html" class="admin-nav-link">Tableau de Bord</a></li>
-                    <li><a href="admin_manage_products.html" class="admin-nav-link active">Gérer les Produits</a></li>
-                    <li><a href="admin_manage_inventory.html" class="admin-nav-link">Gérer les Stocks</a></li>
-                    <li><a href="admin_manage_users.html" class="admin-nav-link">Gérer les Utilisateurs</a></li>
-                    <li><a href="admin_manage_orders.html" class="admin-nav-link">Gérer les Commandes</a></li>
-                </ul>
-            </nav>
-            <div class="p-6 mt-auto"><button id="admin-logout-button" class="btn-admin-secondary w-full">Déconnexion</button></div>
-        </aside>
+// website/admin/js/admin_products.js
+let productsForAdmin = [];
+let editingProductId = null;
 
-        <main class="admin-main-content">
-            <header class="admin-main-header">
-                <h1 class="text-3xl font-serif text-brand-near-black">Gestion des Produits</h1>
-                <button id="show-add-product-form-button" class="btn-admin-primary">Ajouter un Nouveau Produit</button>
-            </header>
+function initializeProductManagement() {
+    // ... (same as previous, no changes needed here for i18n specifically)
+    const showFormButton = document.getElementById('show-add-product-form-button');
+    const productFormSection = document.getElementById('add-edit-product-section');
+    const productForm = document.getElementById('product-form');
+    const cancelFormButton = document.getElementById('cancel-product-form-button');
+    const addWeightOptionButton = document.getElementById('add-weight-option-button');
+    const assetsPreviewSection = document.getElementById('product-assets-preview-section');
 
-            <section class="p-6">
-                <div id="add-edit-product-section" class="admin-card p-6 mb-8" style="display:none;">
-                    <h2 id="product-form-title" class="text-2xl font-serif text-brand-near-black mb-6">Ajouter un Nouveau Produit</h2>
-                    <form id="product-form" class="space-y-5">
-                        <input type="hidden" id="product-edit-id" value="">
+    if (showFormButton && productFormSection) {
+        showFormButton.addEventListener('click', () => {
+            editingProductId = null;
+            if (productForm) productForm.reset();
+            clearFormErrors(productForm);
+            const formTitle = document.getElementById('product-form-title');
+            if (formTitle) formTitle.textContent = "Ajouter un Nouveau Produit";
+            const productIdField = document.getElementById('product-id');
+            if (productIdField) productIdField.readOnly = false;
+            const weightOptionsContainer = document.getElementById('weight-options-container');
+            if (weightOptionsContainer) weightOptionsContainer.innerHTML = '';
+            if(assetsPreviewSection) assetsPreviewSection.style.display = 'none';
+            productFormSection.style.display = 'block';
+            showFormButton.style.display = 'none';
+        });
+    }
 
-                        <div>
-                            <label for="product-id" class="form-label-admin">ID Produit (unique, ex: "truffe-noire-20g")</label>
-                            <input type="text" id="product-id" name="id" class="form-input-admin" required>
-                        </div>
+    if (cancelFormButton && productFormSection && showFormButton) {
+        cancelFormButton.addEventListener('click', () => {
+            productFormSection.style.display = 'none';
+            showFormButton.style.display = 'inline-flex';
+            if (productForm) productForm.reset();
+            clearFormErrors(productForm);
+            editingProductId = null;
+            if(assetsPreviewSection) assetsPreviewSection.style.display = 'none';
+        });
+    }
 
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label for="product-name-fr" class="form-label-admin">Nom du Produit (FR)</label>
-                                <input type="text" id="product-name-fr" name="name_fr" class="form-input-admin" required>
-                            </div>
-                            <div>
-                                <label for="product-name-en" class="form-label-admin">Product Name (EN)</label>
-                                <input type="text" id="product-name-en" name="name_en" class="form-input-admin" required>
-                            </div>
-                        </div>
+    if (productForm) {
+        productForm.addEventListener('submit', handleProductFormSubmit);
+    }
 
-                        <div>
-                            <label for="product-category" class="form-label-admin">Catégorie</label>
-                            <select id="product-category" name="category" class="form-select-admin" required>
-                                <option value="">Sélectionner une catégorie</option>
-                                <option value="Fresh Truffles">Truffes Fraîches</option>
-                                <option value="Truffle Oils">Huiles Truffées</option>
-                                <option value="Truffle Sauces">Sauces Truffées</option>
-                                <option value="Gift Sets">Coffrets Cadeaux</option>
-                                <option value="Other">Autre</option>
-                            </select>
-                        </div>
+    if (addWeightOptionButton) {
+        addWeightOptionButton.addEventListener('click', () => addWeightOptionRow());
+    }
 
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label for="product-short-description-fr" class="form-label-admin">Description Courte (FR)</label>
-                                <textarea id="product-short-description-fr" name="short_description_fr" rows="2" class="form-textarea-admin"></textarea>
-                            </div>
-                            <div>
-                                <label for="product-short-description-en" class="form-label-admin">Short Description (EN)</label>
-                                <textarea id="product-short-description-en" name="short_description_en" rows="2" class="form-textarea-admin"></textarea>
-                            </div>
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label for="product-long-description-fr" class="form-label-admin">Description Longue (FR)</label>
-                                <textarea id="product-long-description-fr" name="long_description_fr" rows="4" class="form-textarea-admin"></textarea>
-                            </div>
-                            <div>
-                                <label for="product-long-description-en" class="form-label-admin">Long Description (EN)</label>
-                                <textarea id="product-long-description-en" name="long_description_en" rows="4" class="form-textarea-admin"></textarea>
-                            </div>
-                        </div>
+    loadAdminProductsList();
+}
 
-                        <div>
-                            <label for="product-image-url-main" class="form-label-admin">URL Image Principale</label>
-                            <input type="url" id="product-image-url-main" name="image_url_main" class="form-input-admin" placeholder="https://example.com/image.jpg">
-                        </div>
-                        <div>
-                            <label for="product-image-urls-thumb" class="form-label-admin">URLs Images Miniatures (JSON Array, ex: ["url1", "url2"])</label>
-                            <input type="text" id="product-image-urls-thumb" name="image_urls_thumb" class="form-input-admin" placeholder='["https://example.com/thumb1.jpg"]'>
-                        </div>
+function addWeightOptionRow(option = { option_id: null, weight_grams: '', price: '', initial_stock: '' }) {
+    // ... (same as previous)
+    const container = document.getElementById('weight-options-container');
+    if (!container) return;
+    const optionIndex = container.children.length;
+    const optionIdInputHtml = option.option_id ? `<input type="hidden" name="weight_options[<span class="math-inline">\{optionIndex\}\]\[option\_id\]" value\="</span>{option.option_id}">` : '';
+    const rowHtml = `
+        <div class="weight-option-row grid grid-cols-1 md:grid-cols-4 gap-3 items-center border p-3 rounded-md mb-2">
+            <span class="math-inline">\{optionIdInputHtml\}
+<div\><label class\="text\-xs font\-medium text\-brand\-near\-black"\>Poids \(g\) <span class\="text\-red\-500"\>\*</span\></label\><input type\="number" name\="weight\_options\[</span>{optionIndex}][weight_grams]" class="form-input-admin text-sm p-2 mt-1" value="<span class="math-inline">\{option\.weight\_grams\}" placeholder\="Ex\: 20" required\></div\>
+<div\><label class\="text\-xs font\-medium text\-brand\-near\-black"\>Prix \(€\) <span class\="text\-red\-500"\>\*</span\></label\><input type\="number" name\="weight\_options\[</span>{optionIndex}][price]" step="0.01" class="form-input-admin text-sm p-2 mt-1" value="<span class="math-inline">\{option\.price\}" placeholder\="Ex\: 75\.00" required\></div\>
+<div\><label class\="text\-xs font\-medium text\-brand\-near\-black"\>Stock Initial/Actuel <span class\="text\-red\-500"\>\*</span\></label\><input type\="number" name\="weight\_options\[</span>{optionIndex}][initial_stock]" step="1" min="0" class="form-input-admin text-sm p-2 mt-1" value="${option.initial_stock}" placeholder="Ex: 10" required></div>
+            <button type="button" class="btn-admin-danger text-xs py-1 px-2 self-end mt-4 md:mt-0" onclick="this.parentElement.remove()">Retirer</button>
+        </div>`;
+    container.insertAdjacentHTML('beforeend', rowHtml);
+}
 
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div><label for="product-species-fr" class="form-label-admin">Espèce (FR)</label><input type="text" id="product-species-fr" name="species_fr" class="form-input-admin"></div>
-                            <div><label for="product-species-en" class="form-label-admin">Species (EN)</label><input type="text" id="product-species-en" name="species_en" class="form-input-admin"></div>
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div><label for="product-origin-fr" class="form-label-admin">Origine (FR)</label><input type="text" id="product-origin-fr" name="origin_fr" class="form-input-admin"></div>
-                            <div><label for="product-origin-en" class="form-label-admin">Origin (EN)</label><input type="text" id="product-origin-en" name="origin_en" class="form-input-admin"></div>
-                        </div>
-                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div><label for="product-seasonality-fr" class="form-label-admin">Saisonnalité (FR)</label><input type="text" id="product-seasonality-fr" name="seasonality_fr" class="form-input-admin"></div>
-                            <div><label for="product-seasonality-en" class="form-label-admin">Seasonality (EN)</label><input type="text" id="product-seasonality-en" name="seasonality_en" class="form-input-admin"></div>
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div><label for="product-ideal-uses-fr" class="form-label-admin">Utilisations Idéales (FR)</label><input type="text" id="product-ideal-uses-fr" name="ideal_uses_fr" class="form-input-admin"></div>
-                            <div><label for="product-ideal-uses-en" class="form-label-admin">Ideal Uses (EN)</label><input type="text" id="product-ideal-uses-en" name="ideal_uses_en" class="form-input-admin"></div>
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div><label for="product-sensory-description-fr" class="form-label-admin">Description Sensorielle (FR)</label><textarea id="product-sensory-description-fr" name="sensory_description_fr" rows="3" class="form-textarea-admin"></textarea></div>
-                            <div><label for="product-sensory-description-en" class="form-label-admin">Sensory Description (EN)</label><textarea id="product-sensory-description-en" name="sensory_description_en" rows="3" class="form-textarea-admin"></textarea></div>
-                        </div>
-                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div><label for="product-pairing-suggestions-fr" class="form-label-admin">Suggestions d'Accords (FR)</label><textarea id="product-pairing-suggestions-fr" name="pairing_suggestions_fr" rows="3" class="form-textarea-admin"></textarea></div>
-                            <div><label for="product-pairing-suggestions-en" class="form-label-admin">Pairing Suggestions (EN)</label><textarea id="product-pairing-suggestions-en" name="pairing_suggestions_en" rows="3" class="form-textarea-admin"></textarea></div>
-                        </div>
+async function handleProductFormSubmit(event) {
+    event.preventDefault();
+    const form = event.target;
+    const assetsPreviewSection = document.getElementById('product-assets-preview-section');
+    const assetsLinksContainer = document.getElementById('product-assets-links');
+    if(assetsPreviewSection) assetsPreviewSection.style.display = 'none';
+    if(assetsLinksContainer) assetsLinksContainer.innerHTML = '';
+
+    clearFormErrors(form);
+    if (!validateProductForm(form)) return;
+
+    const formData = new FormData(form);
+    const productData = {};
+
+    const fieldsToCollect = [
+        'id', 'name_fr', 'name_en', 'category',
+        'short_description_fr', 'short_description_en',
+        'long_description_fr', 'long_description_en',
+        'image_url_main', 'image_urls_thumb',
+        'species_fr', 'species_en', 'origin_fr', 'origin_en',
+        'seasonality_fr', 'seasonality_en', 'ideal_uses_fr', 'ideal_uses_en',
+        'sensory_description_fr', 'sensory_description_en',
+        'pairing_suggestions_fr', 'pairing_suggestions_en',
+        'base_price', 'initial_stock_quantity',
+        'is_published',
+        'numero_lot_manuel', 'date_conditionnement', 'ddm',
+        'specific_weight_for_label',
+        'ingredients_for_label_fr', 'ingredients_for_label_en'
+    ];
+
+    for (const fieldName of fieldsToCollect) {
+        if (formData.has(fieldName)) {
+            if (['base_price', 'initial_stock_quantity'].includes(fieldName)) {
+                productData[fieldName] = formData.get(fieldName) ? parseFloat(formData.get(fieldName)) : null;
+                if (fieldName === 'initial_stock_quantity' && productData[fieldName] === null) productData[fieldName] = 0;
+            } else if (fieldName === 'is_published') {
+                productData[fieldName] = form.querySelector(`#product-is-published`).checked;
+            } else if (fieldName === 'image_urls_thumb') {
+                try {
+                    const thumbString = formData.get('image_urls_thumb');
+                    productData.image_urls_thumb = thumbString.trim() ? JSON.parse(thumbString) : [];
+                    if (!Array.isArray(productData.image_urls_thumb)) productData.image_urls_thumb = [];
+                } catch (e) {
+                    productData.image_urls_thumb = [];
+                    setFieldError(form.querySelector('#product-image-urls-thumb'), "Format JSON invalide.");
+                    return;
+                }
+            } else {
+                productData[fieldName] = formData.get(fieldName);
+            }
+        }
+    }
+
+    const weightOptions = [];
+    document.querySelectorAll('#weight-options-container .weight-option-row').forEach((row) => {
+        const optionIdField = row.querySelector(`input[name*="[option_id]"]`);
+        const weightGramsField = row.querySelector(`input[name*="[weight_grams]"]`);
+        const priceField = row.querySelector(`input[name*="[price]"]`);
+        const initialStockField = row.querySelector(`input[name*="[initial_stock]"]`);
+        if (weightGramsField && priceField && initialStockField && weightGramsField.value && priceField.value && initialStockField.value) {
+            const opt = {
+                weight_grams: parseInt(weightGramsField.value),
+                price: parseFloat(priceField.value),
+                initial_stock: parseInt(initialStockField.value)
+            };
+            if(optionIdField && optionIdField.value) opt.option_id = parseInt(optionIdField.value);
+            weightOptions.push(opt);
+        }
+    });
+
+    if (weightOptions.length > 0) {
+        productData.weight_options = weightOptions;
+        productData.base_price = null;
+        productData.initial_stock_quantity = 0;
+    } else {
+        if (productData.base_price === null || productData.base_price === '') {
+             // If no variants, base_price is required (validateProductForm should handle this)
+        }
+        if(productData.initial_stock_quantity === null || productData.initial_stock_quantity === '') productData.initial_stock_quantity = 0;
+    }
+
+    const method = editingProductId ? 'PUT' : 'POST';
+    const endpoint = editingProductId ? `/products/${editingProductId}` : '/products';
+
+    try {
+        showAdminToast("Enregistrement du produit...", "info");
+        const result = await adminApiRequest(endpoint, method, productData);
+
+        if (result.success && result.product) {
+            showAdminToast(result.message || "Produit enregistré avec succès!", "success");
+            if (result.product.assets && assetsPreviewSection && assetsLinksContainer) {
+                let linksHtml = '';
+                if (result.product.assets.passport_url) linksHtml += `<p><strong>Passeport:</strong> <a href="<span class="math-inline">\{result\.product\.assets\.passport\_url\}" target\="\_blank" class\="text\-brand\-classic\-gold hover\:underline"\></span>{result.product.assets.passport_url}</a></p>`;
+                if (result.product.assets.qr_code_file_path) linksHtml += `<p><strong>QR Code:</strong> <a href="/static_assets/${result.product.assets.qr_code_file_path}" target="_blank" class="text-brand-classic-gold hover:underline">Voir QR</a></p>`;
+                if (result.product.assets.label_file_path) linksHtml += `<p><strong>Étiquette:</strong> <a href="/static_assets/${result.product.assets.label_file_path}" target="_blank" class="text-brand-classic-gold hover:underline">Voir Étiquette</a></p>`;
+
+                if (linksHtml) {
+                    assetsLinksContainer.innerHTML = linksHtml;
+                    assetsPreviewSection.style.display = 'block';
+                } else {
+                    assetsLinksContainer.innerHTML = '<p class="text-brand-warm-taupe">Aucun actif spécifique généré.</p>';
+                    assetsPreviewSection.style.display = 'block';
+                }
+            }
+            editingProductId = result.product.id;
+            document.getElementById('product-form-title').textContent = `Modifier le Produit: ${result.product.name_fr || result.product.name_en}`;
+            document.getElementById('product-id').readOnly = true;
+            loadAdminProductsList();
+        }
+    } catch (error) {
+        console.error("Erreur soumission formulaire produit:", error);
+    }
+}
+
+function validateProductForm(form) {
+    let isValid = true;
+    const requiredFields = [
+        { id: 'product-name-fr', message: "Le nom du produit (FR) est requis." },
+        // { id: 'product-name-en', message: "Product Name (EN) is required." }, // At least one name is good
+        { id: 'product-category', message: "La catégorie est requise." },
+        { id: 'product-image-url-main', message: "L'URL de l'image principale est requise." }
+    ];
+    if (!editingProductId) {
+        requiredFields.unshift({ id: 'product-id', message: "L'ID du produit est requis." });
+    }
+
+    // Check at least one name is filled
+    const nameFr = form.querySelector('#product-name-fr').value.trim();
+    const nameEn = form.querySelector('#product-name-en').value.trim();
+    if (!nameFr && !nameEn) {
+        setFieldError(form.querySelector('#product-name-fr'), "Au moins un nom de produit (FR ou EN) est requis.");
+        setFieldError(form.querySelector('#product-name-en'), "Au moins un nom de produit (FR ou EN) est requis.");
+        isValid = false;
+    }
 
 
-                        <hr class="my-6 border-brand-warm-taupe/30">
-                        <h3 class="text-lg font-semibold text-brand-near-black">Prix et Stock</h3>
+    requiredFields.forEach(fieldInfo => {
+        const field = form.querySelector(`#${fieldInfo.id}`);
+        if (field && !field.value.trim()) {
+            // Skip name validation if one of them is filled
+            if ((fieldInfo.id === 'product-name-fr' && nameEn) || (fieldInfo.id === 'product-name-en' && nameFr)) {
+                // one of the names is filled, so this specific one is not strictly required
+            } else {
+                setFieldError(field, fieldInfo.message);
+                isValid = false;
+            }
+        }
+    });
+    // ... (rest of the validation, URL checks, JSON parsing for thumbs)
+    const basePriceField = form.querySelector('#product-base-price');
+    const weightOptionsRows = form.querySelectorAll('#weight-options-container .weight-option-row');
+    if ((!basePriceField.value || basePriceField.value.trim() === '') && weightOptionsRows.length === 0) {
+        setFieldError(basePriceField, "Un prix de base ou au moins une option de poids est requis.");
+        isValid = false;
+    }
+    if (basePriceField.value && basePriceField.value.trim() !== '' && weightOptionsRows.length > 0) {
+        setFieldError(basePriceField, "Ne pas spécifier de prix de base si des options de poids sont définies.");
+        isValid = false;
+    }
 
-                        <div>
-                            <label for="product-base-price" class="form-label-admin">Prix de Base (si pas de variantes de poids)</label>
-                            <input type="number" id="product-base-price" name="base_price" step="0.01" class="form-input-admin" placeholder="Ex: 25.00">
-                        </div>
-                        <div id="simple-product-stock-section">
-                             <label for="product-initial-stock-quantity" class="form-label-admin">Stock Initial (pour produit simple)</label>
-                            <input type="number" id="product-initial-stock-quantity" name="initial_stock_quantity" step="1" min="0" class="form-input-admin" placeholder="Ex: 50">
-                        </div>
+    if (!isValid) showAdminToast("Veuillez corriger les erreurs dans le formulaire.", "error");
+    return isValid;
+}
 
-                        <div class="mt-4">
-                            <label class="form-label-admin">Options de Poids/Prix (si applicable)</label>
-                            <div id="weight-options-container" class="space-y-3">
-                                </div>
-                            <button type="button" id="add-weight-option-button" class="btn-admin-secondary text-xs mt-2">Ajouter une Option de Poids</button>
-                        </div>
+async function loadAdminProductsList() {
+    const tableBody = document.getElementById('products-table-body');
+    if (!tableBody) return;
+    tableBody.innerHTML = '<tr><td colspan="7" class="text-center py-4">Chargement des produits...</td></tr>'; // Adjusted colspan
+    try {
+        productsForAdmin = await adminApiRequest('/products');
+        if (productsForAdmin.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="7" class="text-center py-4">Aucun produit trouvé.</td></tr>'; // Adjusted colspan
+            return;
+        }
+        let rowsHtml = '';
+        productsForAdmin.forEach(product => {
+            let priceDisplay = product.base_price !== null ? `${parseFloat(product.base_price).toFixed(2)} €` : 'Variantes';
+            let stockDisplay = product.stock_quantity !== undefined ? product.stock_quantity : 'N/A';
+            // Display French name by default in the list, or English if French is missing
+            let displayName = product.name_fr || product.name_en || product.id;
+            rowsHtml += `
+                <tr>
+                    <td class="px-6 py-3 text-xs"><span class="math-inline">\{product\.id\}</td\>
+<td class\="px\-6 py\-3 font\-medium text\-brand\-near\-black"\></span>{displayName}</td>
+                    <td class="px-6 py-3"><span class="math-inline">\{product\.category\}</td\>
+<td class\="px\-6 py\-3"\></span>{priceDisplay}</td>
+                    <td class="px-6 py-3"><span class="math-inline">\{stockDisplay\}</td\>
+<td class\="px\-6 py\-3"\></span>{product.is_published ? '<span class="text-green-600 font-semibold">Oui</span>' : '<span class="text-red-600">Non</span>'}</td>
+                    <td class="px-6 py-3 space-x-2 whitespace-nowrap">
+                        <button onclick="editProduct('${product.id}')" class="btn-admin-secondary text-xs p-1.5">Éditer</button>
+                    </td>
+                </tr>`;
+        });
+        tableBody.innerHTML = rowsHtml;
+    } catch (error) {
+        tableBody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-red-600">Erreur de chargement.</td></tr>'; // Adjusted colspan
+    }
+}
 
-                        <hr class="my-6 border-brand-warm-taupe/30">
-                         <h3 class="text-lg font-semibold text-brand-near-black">Génération des Actifs (Passeport, QR, Étiquette)</h3>
-                        <div>
-                            <label for="product-numero-lot-manuel" class="form-label-admin">Numéro de Lot Manuel (pour actifs)</label>
-                            <input type="text" id="product-numero-lot-manuel" name="numero_lot_manuel" class="form-input-admin" placeholder="Ex: LOT2024-XYZ">
-                        </div>
-                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label for="product-date-conditionnement" class="form-label-admin">Date de Conditionnement (pour actifs)</label>
-                                <input type="date" id="product-date-conditionnement" name="date_conditionnement" class="form-input-admin">
-                            </div>
-                            <div>
-                                <label for="product-ddm" class="form-label-admin">DDM (Date de Durabilité Minimale - pour actifs)</label>
-                                <input type="date" id="product-ddm" name="ddm" class="form-input-admin">
-                            </div>
-                        </div>
-                        <div>
-                            <label for="product-specific-weight-for-label" class="form-label-admin">Poids Spécifique pour Étiquette (si différent des options)</label>
-                            <input type="text" id="product-specific-weight-for-label" name="specific_weight_for_label" class="form-input-admin" placeholder="Ex: 100g (pour huile, etc.)">
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label for="product-ingredients-for-label-fr" class="form-label-admin">Ingrédients Étiquette (FR)</label>
-                                <textarea id="product-ingredients-for-label-fr" name="ingredients_for_label_fr" rows="2" class="form-textarea-admin" placeholder="Ingrédients..."></textarea>
-                            </div>
-                            <div>
-                                <label for="product-ingredients-for-label-en" class="form-label-admin">Label Ingredients (EN)</label>
-                                <textarea id="product-ingredients-for-label-en" name="ingredients_for_label_en" rows="2" class="form-textarea-admin" placeholder="Ingredients..."></textarea>
-                            </div>
-                        </div>
+async function editProduct(productId) {
+    editingProductId = productId;
+    let productToEdit;
+    const assetsPreviewSection = document.getElementById('product-assets-preview-section');
+    const assetsLinksContainer = document.getElementById('product-assets-links');
+    if(assetsPreviewSection) assetsPreviewSection.style.display = 'none';
+    if(assetsLinksContainer) assetsLinksContainer.innerHTML = '';
 
-                        <div class="flex items-center mt-4">
-                            <input type="checkbox" id="product-is-published" name="is_published" class="form-checkbox-admin mr-2" checked>
-                            <label for="product-is-published" class="text-sm text-brand-near-black">Publier ce produit sur la boutique</label>
-                        </div>
+    try {
+        productToEdit = await adminApiRequest(`/products/${productId}`); // This endpoint now returns all localized fields
+        if (!productToEdit) throw new Error("Produit non trouvé.");
+    } catch (e) {
+        showAdminToast("Impossible de charger les détails du produit.", "error");
+        return;
+    }
 
-                        <div class="flex justify-end space-x-3 pt-4">
-                            <button type="button" id="cancel-product-form-button" class="btn-admin-secondary">Annuler</button>
-                            <button type="submit" class="btn-admin-primary">Enregistrer Produit</button>
-                        </div>
-                    </form>
-                    <div id="product-assets-preview-section" class="mt-6 p-4 border-t border-brand-warm-taupe/30 rounded-md bg-brand-cream/50" style="display:none;">
-                        <h4 class="text-md font-semibold text-brand-near-black mb-3">Aperçu des Actifs Générés :</h4>
-                        <div id="product-assets-links" class="space-y-2 text-sm"></div>
-                        <p class="text-xs text-brand-warm-taupe mt-3">Note: Les chemins QR/Étiquette sont relatifs au dossier statique.</p>
-                    </div>
-                </div>
+    const form = document.getElementById('product-form');
+    if (!form) return;
+    form.reset();
+    clearFormErrors(form);
 
-                <div class="admin-card overflow-x-auto">
-                    <h2 class="text-2xl font-serif text-brand-near-black p-6">Liste des Produits</h2>
-                    <table id="products-table" class="admin-table">
-                        <thead>
-                            <tr>
-                                <th scope="col">ID</th>
-                                <th scope="col">Nom (FR)</th>
-                                <th scope="col">Catégorie</th>
-                                <th scope="col">Prix Base / Variantes</th>
-                                <th scope="col">Stock Total</th>
-                                <th scope="col">Publié</th>
-                                <th scope="col">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="products-table-body">
-                            <tr><td colspan="7" class="text-center py-4">Chargement des produits...</td></tr> </tbody>
-                    </table>
-                </div>
-            </section>
-        </main>
-    </div>
-    <div id="admin-toast-container"><div id="admin-message-toast"><p id="admin-message-text"></p></div></div>
-    <script src="js/admin_config.js"></script>
-    <script src="js/admin_ui.js"></script>
-    <script src="js/admin_api.js"></script>
-    <script src="js/admin_auth.js"></script>
-    <script src="js/admin_products.js"></script>
-    <script src="js/admin_main.js"></script>
-</body>
-</html>
+    document.getElementById('product-form-title
