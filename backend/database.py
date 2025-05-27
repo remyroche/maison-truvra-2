@@ -2,382 +2,399 @@
 import sqlite3
 import os
 import logging
-from werkzeug.security import generate_password_hash
-from backend.config import current_config # Import the loaded configuration
+from werkzeug.security import generate_password_hashimport sqlite3
+import click
+from flask import current_app, g
+from flask.cli import with_appcontext
+import os
+import hashlib
+import json # For storing list of image URLs
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-DATABASE_PATH = current_config.DATABASE_PATH
-
+# --- Database Connection Handling ---
 def get_db_connection():
-    """Establishes a connection to the SQLite database."""
-    # Ensure the directory for the database file exists
-    db_dir = os.path.dirname(DATABASE_PATH)
-    if db_dir and not os.path.exists(db_dir):
-        os.makedirs(db_dir)
-        logger.info(f"Created database directory: {db_dir}")
+    """Opens a new database connection if there is none yet for the current application context."""
+    if 'db_conn' not in g:
+        db_path = current_app.config['DATABASE_PATH']
+        # Ensure the directory for the database exists
+        db_dir = os.path.dirname(db_path)
+        if db_dir and not os.path.exists(db_dir):
+            os.makedirs(db_dir, exist_ok=True)
+        g.db_conn = sqlite3.connect(db_path)
+        g.db_conn.row_factory = sqlite3.Row  # Access columns by name
+    return g.db_conn
 
-    conn = sqlite3.connect(DATABASE_PATH)
-    conn.row_factory = sqlite3.Row # Access columns by name
-    # Enable foreign key support
-    conn.execute("PRAGMA foreign_keys = ON;")
-    return conn
+def close_connection(exception=None):
+    """Closes the database connection at the end of the request."""
+    db_conn = g.pop('db_conn', None)
+    if db_conn is not None:
+        db_conn.close()
 
-def initialize_database():
-    """Initializes the database with the required schema and some seed data."""
-    logger.info(f"Initializing database at {DATABASE_PATH}...")
-    conn = get_db_connection()
-    cursor = conn.cursor()
+# --- Schema Definition and Initialization ---
+def init_schema(db):
+    """Defines and creates database tables if they don't exist."""
+    cursor = db.cursor()
 
-    # Drop tables if they exist (for a clean setup during development)
-    # In production, you would use migrations instead of dropping tables.
-    # cursor.execute("DROP TABLE IF EXISTS product_reviews;")
-    # cursor.execute("DROP TABLE IF EXISTS order_items;")
-    # cursor.execute("DROP TABLE IF EXISTS orders;")
-    # cursor.execute("DROP TABLE IF EXISTS product_options;")
-    # cursor.execute("DROP TABLE IF EXISTS products;")
-    # cursor.execute("DROP TABLE IF EXISTS categories;") # Added categories
-    # cursor.execute("DROP TABLE IF EXISTS users;")
-    # cursor.execute("DROP TABLE IF EXISTS newsletter_subscriptions;")
-    # cursor.execute("DROP TABLE IF EXISTS inventory_movements;")
-    # cursor.execute("DROP TABLE IF EXISTS admin_users;")
+    # Users Table (B2C and B2B Customers, Admins)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            first_name TEXT,
+            last_name TEXT,
+            phone_number TEXT,
+            is_admin BOOLEAN DEFAULT FALSE,
+            is_professional BOOLEAN DEFAULT FALSE,
+            professional_status TEXT DEFAULT 'pending', -- e.g., pending, approved, rejected
+            company_name TEXT,
+            vat_number TEXT,
+            siret_number TEXT,
+            billing_address TEXT, -- JSON string for address object
+            shipping_address TEXT, -- JSON string for address object
+            preferred_language TEXT DEFAULT 'fr',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_login_at TIMESTAMP,
+            is_verified BOOLEAN DEFAULT FALSE, -- For email verification
+            verification_token TEXT,
+            reset_token TEXT,
+            reset_token_expires TIMESTAMP
+        )
+    ''')
 
+    # Categories Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name_fr TEXT NOT NULL,
+            name_en TEXT NOT NULL,
+            description_fr TEXT,
+            description_en TEXT,
+            slug TEXT UNIQUE NOT NULL,
+            image_url TEXT, -- Optional category image
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
 
-    # Create Categories Table
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS categories (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name_fr TEXT NOT NULL UNIQUE,
-        name_en TEXT NOT NULL UNIQUE,
-        description_fr TEXT,
-        description_en TEXT,
-        slug TEXT NOT NULL UNIQUE,
-        image_url TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-    """)
-    logger.info("Table 'categories' created or already exists.")
-
-    # Create Products Table
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS products (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name_fr TEXT NOT NULL,
-        name_en TEXT NOT NULL,
-        description_fr TEXT,
-        description_en TEXT,
-        category_id INTEGER, -- New column for category
-        base_price REAL NOT NULL,
-        sku TEXT UNIQUE,
-        image_url_main TEXT,
-        image_urls_additional TEXT, -- JSON string of image URLs
-        is_featured BOOLEAN DEFAULT 0,
-        is_active BOOLEAN DEFAULT 1,
-        meta_title_fr TEXT,
-        meta_title_en TEXT,
-        meta_description_fr TEXT,
-        meta_description_en TEXT,
-        slug TEXT UNIQUE,
-        -- Fields for truffle passport/label
-        species_fr TEXT,
-        species_en TEXT,
-        origin_fr TEXT,
-        origin_en TEXT,
-        quality_grade_fr TEXT,
-        quality_grade_en TEXT,
-        harvest_date DATE,
-        packaging_date DATE,
-        best_before_date DATE,
-        lot_number TEXT UNIQUE,
-        qr_code_url TEXT, -- URL to the generated QR code image
-        label_url TEXT, -- URL to the generated label image
-        passport_url TEXT, -- URL to the generated passport HTML
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL -- Link to categories
-    );
-    """)
-    logger.info("Table 'products' created or already exists.")
-
-    # Create Product Options Table (for variants like weight)
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS product_options (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        product_id INTEGER NOT NULL,
-        name_fr TEXT NOT NULL, -- e.g., "Poids"
-        name_en TEXT NOT NULL, -- e.g., "Weight"
-        value_fr TEXT NOT NULL, -- e.g., "10g", "20g", "Truffle entiere 15g"
-        value_en TEXT NOT NULL, -- e.g., "10g", "20g", "Whole truffle 15g"
-        price_modifier REAL DEFAULT 0, -- Price difference from base_price, can be negative for discount
-        absolute_price REAL, -- If set, this price is used instead of base_price + price_modifier
-        stock_quantity INTEGER NOT NULL DEFAULT 0,
-        sku_suffix TEXT, -- To be appended to product SKU for variant SKU
-        image_url TEXT, -- Specific image for this variant if different from main product
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
-    );
-    """)
-    logger.info("Table 'product_options' created or already exists.")
-
-    # Create Users Table (for B2C and B2B customers)
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT NOT NULL UNIQUE,
-        password_hash TEXT NOT NULL,
-        first_name TEXT,
-        last_name TEXT,
-        phone_number TEXT,
-        role TEXT NOT NULL DEFAULT 'B2C', -- 'B2C', 'B2B_PENDING', 'B2B_APPROVED'
-        company_name TEXT, -- For B2B
-        vat_number TEXT,   -- For B2B
-        siret_number TEXT, -- For B2B
-        billing_address_line1 TEXT,
-        billing_address_line2 TEXT,
-        billing_city TEXT,
-        billing_postal_code TEXT,
-        billing_country TEXT,
-        shipping_address_line1 TEXT,
-        shipping_address_line2 TEXT,
-        shipping_city TEXT,
-        shipping_postal_code TEXT,
-        shipping_country TEXT,
-        is_active BOOLEAN DEFAULT 1,
-        is_admin BOOLEAN DEFAULT 0, -- Differentiates site admins from regular users
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_login_at TIMESTAMP
-    );
-    """)
-    logger.info("Table 'users' created or already exists.")
-
-    # Create Admin Users Table (for backend admin panel access)
-    # This table is distinct from the general 'users' table to separate customer accounts from admin accounts.
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS admin_users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT NOT NULL UNIQUE,
-        email TEXT NOT NULL UNIQUE,
-        password_hash TEXT NOT NULL,
-        role TEXT NOT NULL DEFAULT 'admin', -- e.g., 'superadmin', 'editor', 'viewer'
-        is_active BOOLEAN DEFAULT 1,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_login_at TIMESTAMP
-    );
-    """)
-    logger.info("Table 'admin_users' created or already exists.")
-
-
-    # Create Orders Table
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS orders (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER, -- Can be NULL for guest checkouts if implemented
-        order_reference TEXT NOT NULL UNIQUE,
-        total_amount REAL NOT NULL,
-        status TEXT NOT NULL DEFAULT 'PENDING', -- e.g., PENDING, PROCESSING, SHIPPED, DELIVERED, CANCELED, REFUNDED
-        payment_method TEXT,
-        payment_status TEXT DEFAULT 'UNPAID', -- e.g., UNPAID, PAID, FAILED
-        transaction_id TEXT,
-        shipping_address_line1 TEXT,
-        shipping_address_line2 TEXT,
-        shipping_city TEXT,
-        shipping_postal_code TEXT,
-        shipping_country TEXT,
-        shipping_cost REAL DEFAULT 0,
-        tracking_number TEXT,
-        customer_notes TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
-    );
-    """)
-    logger.info("Table 'orders' created or already exists.")
-
-    # Create Order Items Table
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS order_items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        order_id INTEGER NOT NULL,
-        product_id INTEGER NOT NULL,
-        product_option_id INTEGER, -- If the item is a specific variant
-        quantity INTEGER NOT NULL,
-        unit_price REAL NOT NULL, -- Price per unit at the time of purchase
-        total_price REAL NOT NULL, -- quantity * unit_price
-        product_name_fr TEXT, -- Denormalized for historical data
-        product_name_en TEXT,
-        option_value_fr TEXT,
-        option_value_en TEXT,
-        sku TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
-        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT, -- Prevent product deletion if in an order
-        FOREIGN KEY (product_option_id) REFERENCES product_options(id) ON DELETE RESTRICT
-    );
-    """)
-    logger.info("Table 'order_items' created or already exists.")
-
-    # Create Product Reviews Table
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS product_reviews (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        product_id INTEGER NOT NULL,
-        user_id INTEGER NOT NULL,
-        rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
-        title TEXT,
-        comment TEXT,
-        status TEXT DEFAULT 'PENDING', -- PENDING, APPROVED, REJECTED
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-    """)
-    logger.info("Table 'product_reviews' created or already exists.")
-
-    # Create Newsletter Subscriptions Table
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS newsletter_subscriptions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT NOT NULL UNIQUE,
-        subscribed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        is_active BOOLEAN DEFAULT 1
-    );
-    """)
-    logger.info("Table 'newsletter_subscriptions' created or already exists.")
-
-    # Create Inventory Movements Table (for tracking stock changes)
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS inventory_movements (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        product_id INTEGER NOT NULL,
-        product_option_id INTEGER, -- If movement is for a specific variant
-        change_quantity INTEGER NOT NULL, -- Positive for stock in, negative for stock out
-        reason TEXT, -- e.g., 'NEW_STOCK', 'SALE', 'RETURN', 'ADJUSTMENT'
-        order_id INTEGER, -- Optional: link to order if it's a sale or return
-        notes TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
-        FOREIGN KEY (product_option_id) REFERENCES product_options(id) ON DELETE CASCADE,
-        FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL
-    );
-    """)
-    logger.info("Table 'inventory_movements' created or already exists.")
-
-    # Create an initial admin user if it doesn't exist
-    try:
-        cursor.execute("SELECT * FROM admin_users WHERE username = ?", ('admin',))
-        if cursor.fetchone() is None:
-            hashed_password = generate_password_hash('adminpassword') # Change this default password!
-            cursor.execute("""
-                INSERT INTO admin_users (username, email, password_hash, role, is_active)
-                VALUES (?, ?, ?, ?, ?)
-            """, ('admin', 'admin@example.com', hashed_password, 'superadmin', 1))
-            logger.info("Default admin user 'admin' created.")
-    except sqlite3.Error as e:
-        logger.error(f"Error creating default admin user: {e}")
-
-
-    # Seed initial categories if the table is empty
-    try:
-        cursor.execute("SELECT COUNT(*) FROM categories")
-        if cursor.fetchone()[0] == 0:
-            initial_categories = [
-                ('Truffe Fraîche', 'Fresh Truffle', 'Nos meilleures truffes fraîches de saison.', 'Our best seasonal fresh truffles.', 'truffe-fraiche', 'images/categories/fresh_truffle.jpg'),
-                ('Huiles & Condiments', 'Oils & Condiments', 'Huiles et condiments aromatisés à la truffe.', 'Truffle-flavored oils and condiments.', 'huiles-condiments', 'images/categories/oils_condiments.jpg'),
-                ('Produits d\'Épicerie Fine', 'Delicatessen Products', 'Une sélection de produits d\'épicerie fine à la truffe.', 'A selection of truffle delicatessen products.', 'epicerie-fine', 'images/categories/delicatessen.jpg'),
-                ('Coffrets Cadeaux', 'Gift Boxes', 'Des coffrets cadeaux parfaits pour les amateurs de truffes.', 'Perfect gift boxes for truffle lovers.', 'coffrets-cadeaux', 'images/categories/gift_boxes.jpg')
-            ]
-            cursor.executemany("""
-                INSERT INTO categories (name_fr, name_en, description_fr, description_en, slug, image_url)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, initial_categories)
-            logger.info(f"Inserted {len(initial_categories)} initial categories.")
-    except sqlite3.Error as e:
-        logger.error(f"Error seeding categories: {e}")
-
-
-    # Seed initial products if the table is empty (example)
-    try:
-        cursor.execute("SELECT COUNT(*) FROM products")
-        if cursor.fetchone()[0] == 0:
-            # Get category IDs (assuming they were just inserted)
-            cursor.execute("SELECT id, name_fr FROM categories")
-            category_map = {name: cat_id for cat_id, name in cursor.fetchall()}
-
-            fresh_truffle_cat_id = category_map.get('Truffe Fraîche')
-
-            if fresh_truffle_cat_id:
-                initial_products = [
-                    ('Truffe Noire Extra (Tuber Melanosporum)', 'Black Truffle Extra (Tuber Melanosporum)',
-                     'La reine des truffes, la Tuber Melanosporum, qualité extra.', 'The queen of truffles, Tuber Melanosporum, extra quality.',
-                     fresh_truffle_cat_id, 50.00, 'TN-EXTRA-001', 'images/products/truffle_noire_1.jpg', '[]', 1, 1,
-                     'Truffe Noire Extra', 'Black Truffle Extra', 'Acheter truffe noire extra', 'Buy black truffle extra', 'truffe-noire-extra',
-                     'Tuber Melanosporum', 'Tuber Melanosporum', 'Provence, France', 'Provence, France', 'Extra', 'Extra',
-                     '2023-12-01', '2023-12-05', '2023-12-20', 'LOT20231205A'),
-                    ('Truffe Blanche d\'Alba (Tuber Magnatum Pico)', 'Alba White Truffle (Tuber Magnatum Pico)',
-                     'La prestigieuse truffe blanche d\'Alba, un arôme incomparable.', 'The prestigious Alba white truffle, an incomparable aroma.',
-                     fresh_truffle_cat_id, 200.00, 'TB-ALBA-001', 'images/products/truffle_blanche_1.jpg', '[]', 1, 1,
-                     'Truffe Blanche d\'Alba', 'Alba White Truffle', 'Acheter truffe blanche d\'Alba', 'Buy Alba white truffle', 'truffe-blanche-alba',
-                     'Tuber Magnatum Pico', 'Tuber Magnatum Pico', 'Alba, Italie', 'Alba, Italy', 'Premium', 'Premium',
-                     '2023-11-15', '2023-11-18', '2023-11-28', 'LOT20231118B')
-                ]
-                cursor.executemany("""
-                    INSERT INTO products (name_fr, name_en, description_fr, description_en, category_id, base_price, sku, image_url_main, image_urls_additional, is_featured, is_active, meta_title_fr, meta_title_en, meta_description_fr, meta_description_en, slug, species_fr, species_en, origin_fr, origin_en, quality_grade_fr, quality_grade_en, harvest_date, packaging_date, best_before_date, lot_number)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, initial_products)
-                logger.info(f"Inserted {len(initial_products)} initial products.")
-
-                # Seed product options for the first product (Truffe Noire Extra)
-                cursor.execute("SELECT id FROM products WHERE sku = 'TN-EXTRA-001'")
-                product1_id_row = cursor.fetchone()
-                if product1_id_row:
-                    product1_id = product1_id_row[0]
-                    initial_options_p1 = [
-                        (product1_id, 'Poids', 'Weight', '15g', '15g', 0, None, 100, '15G'),
-                        (product1_id, 'Poids', 'Weight', '30g', '30g', 45.00, None, 50, '30G'), # 50 (base) + 45 = 95
-                        (product1_id, 'Poids', 'Weight', '50g', '50g', None, 150.00, 30, '50G') # Absolute price
-                    ]
-                    cursor.executemany("""
-                        INSERT INTO product_options (product_id, name_fr, name_en, value_fr, value_en, price_modifier, absolute_price, stock_quantity, sku_suffix)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, initial_options_p1)
-                    logger.info(f"Inserted {len(initial_options_p1)} options for product TN-EXTRA-001.")
-
-                    # Update inventory for these options
-                    for opt in initial_options_p1:
-                        cursor.execute("""
-                            INSERT INTO inventory_movements (product_id, product_option_id, change_quantity, reason)
-                            SELECT ?, po.id, ?, 'INITIAL_STOCK'
-                            FROM product_options po
-                            WHERE po.product_id = ? AND po.sku_suffix = ?
-                        """, (product1_id, opt[7], product1_id, opt[8]))
-                    logger.info(f"Created initial inventory movements for product TN-EXTRA-001 options.")
-
-    except sqlite3.Error as e:
-        logger.error(f"Error seeding products or product options: {e}")
-
-
-    conn.commit()
-    conn.close()
-    logger.info("Database initialization complete.")
-
-if __name__ == '__main__':
-    # This allows you to run `python backend/database.py` to initialize/reset the DB.
-    # Be cautious with this in a production environment.
-    logger.info("Running database initialization directly.")
-    # db_dir = os.path.dirname(DATABASE_PATH)
-    # if db_dir and not os.path.exists(db_dir):
-    # os.makedirs(db_dir)
-    # logger.info(f"Created database directory: {db_dir}")
+    # Products Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name_fr TEXT NOT NULL,
+            name_en TEXT NOT NULL,
+            description_fr TEXT,
+            description_en TEXT,
+            category_id INTEGER,
+            sku TEXT UNIQUE NOT NULL, -- Stock Keeping Unit
+            base_price REAL NOT NULL, -- Price for the base variant/unit
+            currency TEXT DEFAULT 'EUR',
+            main_image_url TEXT, -- Primary image for the product
+            additional_image_urls TEXT, -- JSON list of strings for other images
+            tags TEXT, -- Comma-separated tags
+            is_active BOOLEAN DEFAULT TRUE, -- Whether the product is visible in the store
+            is_featured BOOLEAN DEFAULT FALSE,
+            meta_title_fr TEXT,
+            meta_title_en TEXT,
+            meta_description_fr TEXT,
+            meta_description_en TEXT,
+            slug TEXT UNIQUE NOT NULL,
+            qr_code_url TEXT,
+            product_passport_url TEXT,
+            label_url TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (category_id) REFERENCES categories (id)
+        )
+    ''')
     
-    # Potentially drop the DB file for a complete reset if needed for development
-    # if os.path.exists(DATABASE_PATH) and current_config.DEBUG:
-    #     logger.warning(f"Development mode: Removing existing database at {DATABASE_PATH} for re-initialization.")
-    #     os.remove(DATABASE_PATH)
-            
-    initialize_database()
+    # Product Variants Table (e.g., different sizes, weights)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS product_variants (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER NOT NULL,
+            sku TEXT UNIQUE NOT NULL, -- Variant specific SKU
+            name_fr TEXT, -- e.g., "50g", "100g"
+            name_en TEXT,
+            price_modifier REAL DEFAULT 0, -- Amount to add/subtract from base_price, or could be absolute price
+            stock_quantity INTEGER DEFAULT 0,
+            weight_grams INTEGER, -- For shipping calculations
+            dimensions TEXT, -- JSON string for L x W x H
+            image_url TEXT, -- Specific image for this variant
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE
+        )
+    ''')
+
+    # Inventory / Stock Movements Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS inventory_movements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_variant_id INTEGER NOT NULL,
+            change_quantity INTEGER NOT NULL, -- Positive for stock in, negative for stock out
+            reason TEXT, -- e.g., 'initial_stock', 'sale', 'return', 'adjustment'
+            movement_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            related_order_id INTEGER, -- Optional, link to order if it's a sale/return
+            notes TEXT,
+            FOREIGN KEY (product_variant_id) REFERENCES product_variants (id)
+            -- FOREIGN KEY (related_order_id) REFERENCES orders (id) -- Add if orders table is defined
+        )
+    ''')
+    
+    # Orders Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER, -- Can be NULL for guest checkouts if allowed
+            order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            status TEXT NOT NULL DEFAULT 'pending', -- e.g., pending, processing, shipped, delivered, cancelled, refunded
+            total_amount REAL NOT NULL,
+            currency TEXT DEFAULT 'EUR',
+            shipping_address TEXT NOT NULL, -- JSON string
+            billing_address TEXT NOT NULL, -- JSON string
+            shipping_method TEXT,
+            shipping_cost REAL DEFAULT 0,
+            payment_method TEXT,
+            payment_status TEXT DEFAULT 'pending', -- e.g., pending, paid, failed
+            transaction_id TEXT, -- From payment gateway
+            customer_notes TEXT,
+            admin_notes TEXT,
+            invoice_url TEXT, -- Path to generated invoice for B2C if applicable
+            tracking_number TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )
+    ''')
+
+    # Order Items Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS order_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id INTEGER NOT NULL,
+            product_variant_id INTEGER NOT NULL,
+            quantity INTEGER NOT NULL,
+            unit_price REAL NOT NULL, -- Price at the time of purchase
+            total_price REAL NOT NULL,
+            product_name_fr TEXT, -- Denormalized for easier invoice generation/history
+            product_name_en TEXT,
+            variant_name_fr TEXT,
+            variant_name_en TEXT,
+            sku TEXT,
+            FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE,
+            FOREIGN KEY (product_variant_id) REFERENCES product_variants (id) -- Consider ON DELETE SET NULL or RESTRICT
+        )
+    ''')
+
+    # Professional Invoices Table (B2B)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS professional_invoices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            professional_user_id INTEGER NOT NULL,
+            invoice_number TEXT UNIQUE NOT NULL,
+            issue_date DATE NOT NULL,
+            due_date DATE,
+            total_amount REAL NOT NULL,
+            vat_amount REAL,
+            status TEXT DEFAULT 'draft', -- e.g., draft, sent, paid, overdue, cancelled
+            pdf_url TEXT, -- Path to the generated PDF invoice
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (professional_user_id) REFERENCES users (id)
+        )
+    ''')
+    
+    # Professional Invoice Items
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS professional_invoice_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            invoice_id INTEGER NOT NULL,
+            description TEXT NOT NULL,
+            quantity INTEGER NOT NULL,
+            unit_price REAL NOT NULL,
+            total_price REAL NOT NULL,
+            FOREIGN KEY (invoice_id) REFERENCES professional_invoices (id) ON DELETE CASCADE
+        )
+    ''')
+
+    # Reviews Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+            comment TEXT,
+            review_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_approved BOOLEAN DEFAULT FALSE, -- Admin approval for reviews
+            FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+        )
+    ''')
+
+    # Newsletter Subscriptions Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS newsletter_subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            subscribed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_active BOOLEAN DEFAULT TRUE,
+            opt_out_token TEXT
+        )
+    ''')
+
+    # Audit Log Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            user_id INTEGER, -- User performing the action (can be admin or customer)
+            username TEXT, -- Denormalized for easier viewing
+            action TEXT NOT NULL, -- e.g., 'product_created', 'user_login', 'order_status_changed'
+            target_type TEXT, -- e.g., 'product', 'user', 'order'
+            target_id INTEGER,
+            details TEXT, -- JSON string for additional details
+            ip_address TEXT,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )
+    ''')
+    
+    # Professional B2B Quotes Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS professional_quotes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            company_name TEXT,
+            contact_name TEXT,
+            email TEXT NOT NULL,
+            phone_number TEXT,
+            project_description TEXT NOT NULL,
+            estimated_budget REAL,
+            status TEXT DEFAULT 'pending_review', -- e.g., pending_review, contacted, proposal_sent, accepted, rejected
+            submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            admin_notes TEXT,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )
+    ''')
+
+
+    db.commit()
+    print("Database schema initialized.")
+
+def seed_data(db):
+    """Seeds the database with initial data if tables are empty."""
+    cursor = db.cursor()
+
+    # Check if admin user already exists
+    cursor.execute("SELECT id FROM users WHERE email = ?", ('admin@maisontruvra.com',))
+    if cursor.fetchone() is None:
+        password = 'adminpassword' # Change this for a real deployment!
+        password_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
+        cursor.execute('''
+            INSERT INTO users (email, password_hash, first_name, last_name, is_admin, is_professional, professional_status, is_verified)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', ('admin@maisontruvra.com', password_hash, 'Admin', 'User', True, False, 'not_applicable', True))
+        print("Admin user created.")
+
+    # Check if categories exist
+    cursor.execute("SELECT id FROM categories WHERE slug = ?", ('truffes-fraiches',))
+    if cursor.fetchone() is None:
+        categories_data = [
+            ('Truffe Fraîche', 'Fresh Truffle', 'Découvrez nos truffes fraîches de saison.', 'Discover our seasonal fresh truffles.', 'truffes-fraiches', 'images/categories/truffes_fraiches.jpg'),
+            ('Huiles & Condiments', 'Oils & Condiments', 'Huiles aromatisées à la truffe et autres condiments.', 'Truffle-flavored oils and other condiments.', 'huiles-condiments', 'images/categories/huiles_condiments.jpg'),
+            ('Produits d\'Épicerie Fine', 'Delicatessen Products', 'Sélection de produits d\'épicerie fine à base de truffe.', 'Selection of truffle-based delicatessen products.', 'epicerie-fine', 'images/categories/epicerie_fine.jpg')
+        ]
+        cursor.executemany('''
+            INSERT INTO categories (name_fr, name_en, description_fr, description_en, slug, image_url)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', categories_data)
+        print(f"{len(categories_data)} categories seeded.")
+    
+    # Example: Seed a basic product if none exist
+    cursor.execute("SELECT id FROM products WHERE sku = ?", ('TF-NOIRE-T1-50G',))
+    if cursor.fetchone() is None:
+        # Get category_id for 'truffes-fraiches'
+        cursor.execute("SELECT id FROM categories WHERE slug = ?", ('truffes-fraiches',))
+        category_row = cursor.fetchone()
+        if category_row:
+            category_id_truffes = category_row['id']
+            product_data = (
+                'Truffe Noire Fraîche Tuber Melanosporum', 
+                'Fresh Black Truffle Tuber Melanosporum',
+                'La reine des truffes, la Tuber Melanosporum, récoltée à maturité.',
+                'The queen of truffles, Tuber Melanosporum, harvested at maturity.',
+                category_id_truffes,
+                'TF-NOIRE-BASE', # Base product SKU
+                150.00, # Base price (e.g. per 100g, variants will adjust)
+                'EUR',
+                'images/products/truffe_noire_1.jpg',
+                json.dumps(['images/products/truffe_noire_2.jpg', 'images/products/truffe_noire_3.jpg']),
+                'truffe noire,melanosporum,frais,luxe',
+                True, True,
+                'Truffe Noire Fraîche | Tuber Melanosporum | Maison Trüvra',
+                'Fresh Black Truffle | Tuber Melanosporum | Maison Trüvra',
+                'Achetez la meilleure truffe noire fraîche Tuber Melanosporum, directement du producteur.',
+                'Buy the best fresh black truffle Tuber Melanosporum, direct from the producer.',
+                'truffe-noire-melanosporum'
+            )
+            cursor.execute('''
+                INSERT INTO products (name_fr, name_en, description_fr, description_en, category_id, sku, base_price, currency, main_image_url, additional_image_urls, tags, is_active, is_featured, meta_title_fr, meta_title_en, meta_description_fr, meta_description_en, slug)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', product_data)
+            product_id = cursor.lastrowid
+
+            # Seed a variant for this product
+            variant_data = (
+                product_id,
+                'TF-NOIRE-T1-50G',
+                '50g', 
+                '50g',
+                75.00, # Absolute price for this variant
+                50, # Stock
+                50 # Weight
+            )
+            cursor.execute('''
+                INSERT INTO product_variants (product_id, sku, name_fr, name_en, price_modifier, stock_quantity, weight_grams)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', variant_data)
+            print("Example product and variant seeded.")
+
+    db.commit()
+    print("Data seeding completed (if tables were empty).")
+
+
+# --- Flask CLI Commands ---
+@click.command('init-db')
+@with_appcontext
+def init_db_command():
+    """Clear existing data and create new tables."""
+    db = get_db_connection()
+    # Drop tables if they exist (optional, for a clean start)
+    # cursor = db.cursor()
+    # tables = ['audit_log', 'professional_invoice_items', 'professional_invoices', 'newsletter_subscriptions', 'reviews', 'order_items', 'orders', 'inventory_movements', 'product_variants', 'products', 'categories', 'users', 'professional_quotes']
+    # for table in tables:
+    #     cursor.execute(f"DROP TABLE IF EXISTS {table}")
+    # print("Dropped existing tables.")
+    
+    init_schema(db)
+    seed_data(db) # Seed initial data
+    click.echo('Initialized and seeded the database.')
+
+@click.command('seed-db')
+@with_appcontext
+def seed_db_command():
+    """Seed the database with initial data."""
+    db = get_db_connection()
+    seed_data(db)
+    click.echo('Seeded the database.')
+
+
+def init_app(app):
+    """Register database functions with the Flask app. This is called by the application factory."""
+    app.teardown_appcontext(close_connection)
+    app.cli.add_command(init_db_command)
+    app.cli.add_command(seed_db_command)
+
+
