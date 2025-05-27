@@ -1,0 +1,7 @@
+            /* admin/src/input.css */
+            @tailwind base;
+            @tailwind components;
+            @tailwind utilities;
+
+            /* Import your custom admin styles */
+            @import "../admin_styles.css";
