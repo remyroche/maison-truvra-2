@@ -1,528 +1,524 @@
-# backend/auth/routes.py
-from flask import Blueprint, request, jsonify, g, current_app
+from flask import Blueprint, request, jsonify, current_app, g
 from werkzeug.security import generate_password_hash, check_password_hash
-import jwt
-import datetime
-from functools import wraps
 import sqlite3
-import re # For email validation
+import re # For email and password validation
+from datetime import datetime, timedelta
+import secrets # For token generation
+import json # For address objects
 
-# Assuming AuditLogService is in services.audit_service
-# from ..services.audit_service import AuditLogService
-# For now, let's create a placeholder if it's not ready
-try:
-    from ..services.audit_service import AuditLogService
-except ImportError:
-    class AuditLogService:
-        def log_action(self, user_id, action, details=None, success=True, ip_address=None, role=None):
-            print(f"AUDIT_LOG_PLACEHOLDER: User {user_id} ({role}) action: {action}, Success: {success}, Details: {details}, IP: {ip_address}")
-    print("Warning: AuditLogService not found, using placeholder.")
-
+from backend.database import get_db_connection # Use the centralized get_db_connection
+# AuditLogService is accessed via current_app.audit_log_service
 
 auth_bp = Blueprint('auth_bp', __name__)
 
-# --- Database Helper ---
-def get_db():
-    db = getattr(g, '_database', None)
-    if db is None:
-        db = g._database = sqlite3.connect(current_app.config['DATABASE'])
-        db.row_factory = sqlite3.Row
-    return db
-
-# --- Decorators ---
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        token = None
-        if 'Authorization' in request.headers:
-            auth_header = request.headers['Authorization']
-            if auth_header.startswith('Bearer '):
-                token = auth_header.split(" ")[1]
-
-        if not token:
-            return jsonify({'message': 'Token is missing!'}), 401
-
-        try:
-            data = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
-            g.current_user_id = data['user_id']
-            g.current_user_role = data.get('role', 'b2c') # Default to b2c if role not in token
-        except jwt.ExpiredSignatureError:
-            return jsonify({'message': 'Token has expired!'}), 401
-        except jwt.InvalidTokenError:
-            return jsonify({'message': 'Token is invalid!'}), 401
-        
-        # Store user details in g for easier access
-        user = get_user_by_id(g.current_user_id, g.current_user_role)
-        if not user:
-            return jsonify({'message': 'User not found!'}), 401
-        g.current_user = user
-
-        return f(*args, **kwargs)
-    return decorated_function
-
-def admin_required(f):
-    @wraps(f)
-    @login_required # Ensures user is logged in first
-    def decorated_function(*args, **kwargs):
-        if g.current_user_role != 'admin':
-            AuditLogService().log_action(g.current_user_id, 'ADMIN_ACCESS_DENIED', f"Attempt to access {request.path}", success=False, ip_address=request.remote_addr, role=g.current_user_role)
-            return jsonify({'message': 'Admin access required!'}), 403
-        return f(*args, **kwargs)
-    return decorated_function
-
-# --- Utility Functions ---
-def get_user_by_email(email, role='b2c'):
-    db = get_db()
-    table = 'users_b2c' if role == 'b2c' else 'users_b2b'
-    user = db.execute(f'SELECT * FROM {table} WHERE email = ?', (email,)).fetchone()
-    return user
-
-def get_user_by_id(user_id, role='b2c'):
-    db = get_db()
-    table = 'users_b2c' if role == 'b2c' else 'users_b2b'
-    user = db.execute(f'SELECT * FROM {table} WHERE id = ?', (user_id,)).fetchone()
-    return user
-
+# --- Helper Functions ---
 def is_valid_email(email):
-    # Basic email validation regex
+    if not email: return False
+    # Basic regex, consider a more robust library for production
     regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    return re.match(regex, email)
+    return re.match(regex, email) is not None
 
 def is_strong_password(password):
-    if len(password) < 8:
-        return False
-    if not re.search(r"[A-Z]", password): # At least one uppercase
-        return False
-    if not re.search(r"[a-z]", password): # At least one lowercase
-        return False
-    if not re.search(r"[0-9]", password): # At least one digit
-        return False
-    # if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password): # At least one special character (optional)
-    #     return False
+    if not password or len(password) < 8: return False
+    if not re.search(r"[A-Z]", password): return False # Uppercase
+    if not re.search(r"[a-z]", password): return False # Lowercase
+    if not re.search(r"[0-9]", password): return False # Number
+    # Optional: if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password): return False # Special character
     return True
 
-
-# --- Routes ---
-@auth_bp.route('/api/register', methods=['POST'])
+# --- Registration (B2C) ---
+@auth_bp.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
+    if not data:
+        return jsonify(message="Invalid JSON data"), 400
+
     email = data.get('email')
     password = data.get('password')
-    name = data.get('name') # For B2C
-    role = data.get('role', 'b2c') # Default to B2C
+    first_name = data.get('firstName') # Ensure frontend sends these exact keys
+    last_name = data.get('lastName')
 
-    # Common validation
-    if not email or not password or not name: # Name is required for B2C
-        AuditLogService().log_action(None, 'REGISTER_ATTEMPT_FAIL', f"Missing fields for role {role}", success=False, ip_address=request.remote_addr)
-        return jsonify({'message': 'Missing required fields'}), 400
+    if not all([email, password, first_name, last_name]):
+        return jsonify(message="Missing required fields (email, password, firstName, lastName)"), 400
     if not is_valid_email(email):
-        AuditLogService().log_action(None, 'REGISTER_ATTEMPT_FAIL', f"Invalid email format: {email}", success=False, ip_address=request.remote_addr)
-        return jsonify({'message': 'Invalid email format'}), 400
+        current_app.audit_log_service.log_action(action='user_register_attempt_failed', username=email, details={'reason': 'invalid_email_format'}, success=False)
+        return jsonify(message="Invalid email format"), 400
     if not is_strong_password(password):
-        AuditLogService().log_action(None, 'REGISTER_ATTEMPT_FAIL', f"Password not strong enough for email: {email}", success=False, ip_address=request.remote_addr)
-        return jsonify({'message': 'Password is not strong enough. Min 8 chars, upper, lower, digit.'}), 400
+        current_app.audit_log_service.log_action(action='user_register_attempt_failed', username=email, details={'reason': 'weak_password'}, success=False)
+        return jsonify(message="Password is not strong enough. Min 8 chars, with uppercase, lowercase, and number."), 400
 
-    db = get_db()
-    hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
+    db = get_db_connection()
+    cursor = db.cursor()
 
-    if role == 'b2c':
-        if get_user_by_email(email, 'b2c'):
-            AuditLogService().log_action(None, 'REGISTER_B2C_FAIL', f"Email already exists: {email}", success=False, ip_address=request.remote_addr)
-            return jsonify({'message': 'B2C user with this email already exists'}), 409
+    try:
+        cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
+        if cursor.fetchone():
+            current_app.audit_log_service.log_action(
+                action='user_register_attempt_failed', username=email,
+                details={'reason': 'email_exists'}, success=False)
+            return jsonify(message="Email already registered"), 409
+
+        password_hash_val = generate_password_hash(password)
+        verification_token = secrets.token_urlsafe(32) # For email verification
+
+        cursor.execute('''
+            INSERT INTO users (email, password_hash, first_name, last_name, is_professional, professional_status, verification_token, is_verified, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (email, password_hash_val, first_name, last_name, False, 'not_applicable', verification_token, False, datetime.utcnow()))
+        user_id = cursor.lastrowid
+        db.commit()
+
+        current_app.audit_log_service.log_action(
+            action='user_registered', user_id=user_id, username=email,
+            target_type='user', target_id=user_id,
+            details={'first_name': first_name, 'last_name': last_name, 'type': 'b2c'}, success=True)
         
-        address_shipping = data.get('address_shipping', '')
-        address_billing = data.get('address_billing', '')
-        phone = data.get('phone', '')
-        
-        try:
-            cursor = db.execute('INSERT INTO users_b2c (name, email, password_hash, address_shipping, address_billing, phone) VALUES (?, ?, ?, ?, ?, ?)',
-                                (name, email, hashed_password, address_shipping, address_billing, phone))
-            db.commit()
-            user_id = cursor.lastrowid
-            AuditLogService().log_action(user_id, 'REGISTER_B2C_SUCCESS', f"Email: {email}", success=True, ip_address=request.remote_addr, role='b2c')
-            return jsonify({'message': 'B2C user registered successfully', 'userId': user_id}), 201
-        except sqlite3.IntegrityError:
-            AuditLogService().log_action(None, 'REGISTER_B2C_FAIL', f"DB IntegrityError, likely email exists: {email}", success=False, ip_address=request.remote_addr)
-            return jsonify({'message': 'B2C user with this email already exists (DB constraint)'}), 409
-        except Exception as e:
-            current_app.logger.error(f"B2C Registration error: {e}")
-            AuditLogService().log_action(None, 'REGISTER_B2C_FAIL', f"Server error: {str(e)}", success=False, ip_address=request.remote_addr)
-            return jsonify({'message': 'Could not register B2C user, server error.'}), 500
+        # TODO: Send verification email with verification_token
+        # verification_link = f"{current_app.config.get('FRONTEND_URL', '')}/verify-email.html?token={verification_token}"
+        # send_verification_email(email, verification_link) # Implement this
+        current_app.logger.info(f"Verification token for {email}: {verification_token}") # Log for dev
 
-    elif role == 'b2b':
-        company_name = data.get('company_name')
-        siret = data.get('siret') # SIRET number for French companies
-        vat_number = data.get('vat_number') # VAT number
-        contact_name = name # Use 'name' as contact_name for B2B
-        phone = data.get('phone')
-        billing_address = data.get('billing_address')
-        shipping_address = data.get('shipping_address')
+        return jsonify(message="User registered successfully. Please check your email to verify your account.", userId=user_id), 201
 
-        if not company_name or not siret or not contact_name or not phone or not billing_address:
-            AuditLogService().log_action(None, 'REGISTER_B2B_FAIL', "Missing B2B specific fields", success=False, ip_address=request.remote_addr)
-            return jsonify({'message': 'Missing B2B required fields (company_name, siret, contact_name, phone, billing_address)'}), 400
+    except sqlite3.Error as e:
+        db.rollback()
+        current_app.logger.error(f"Database error during B2C registration: {e}")
+        current_app.audit_log_service.log_action(action='user_register_failed_db_error', username=email, details={'error': str(e)}, success=False)
+        return jsonify(message=f"Database error: {str(e)}"), 500
+    except Exception as e:
+        db.rollback()
+        current_app.logger.error(f"Unexpected error during B2C registration: {e}")
+        current_app.audit_log_service.log_action(action='user_register_failed_unexpected', username=email, details={'error': str(e)}, success=False)
+        return jsonify(message=f"An unexpected error occurred: {str(e)}"), 500
 
-        if get_user_by_email(email, 'b2b'):
-            AuditLogService().log_action(None, 'REGISTER_B2B_FAIL', f"B2B Email already exists: {email}", success=False, ip_address=request.remote_addr)
-            return jsonify({'message': 'B2B user with this email already exists'}), 409
-        
-        try:
-            cursor = db.execute('''
-                INSERT INTO users_b2b (company_name, siret, vat_number, contact_name, email, password_hash, phone, billing_address, shipping_address, is_approved, status) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (company_name, siret, vat_number, contact_name, email, hashed_password, phone, billing_address, shipping_address, False, 'pending_approval'))
-            db.commit()
-            user_id = cursor.lastrowid
-            # TODO: Send notification email to admin for B2B registration
-            AuditLogService().log_action(user_id, 'REGISTER_B2B_PENDING', f"Company: {company_name}, Email: {email}", success=True, ip_address=request.remote_addr, role='b2b')
-            return jsonify({'message': 'B2B registration request submitted. Awaiting approval.', 'userId': user_id}), 201
-        except sqlite3.IntegrityError:
-            AuditLogService().log_action(None, 'REGISTER_B2B_FAIL', f"DB IntegrityError, likely email/siret exists: {email}", success=False, ip_address=request.remote_addr)
-            return jsonify({'message': 'B2B user with this email or SIRET already exists (DB constraint)'}), 409
-        except Exception as e:
-            current_app.logger.error(f"B2B Registration error: {e}")
-            AuditLogService().log_action(None, 'REGISTER_B2B_FAIL', f"Server error: {str(e)}", success=False, ip_address=request.remote_addr)
-            return jsonify({'message': 'Could not register B2B user, server error.'}), 500
-    else:
-        AuditLogService().log_action(None, 'REGISTER_ATTEMPT_FAIL', f"Invalid role specified: {role}", success=False, ip_address=request.remote_addr)
-        return jsonify({'message': 'Invalid role specified'}), 400
-
-
-@auth_bp.route('/api/login', methods=['POST'])
+# --- Login ---
+@auth_bp.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
+    if not data:
+        return jsonify(message="Invalid JSON data"), 400
+
     email = data.get('email')
     password = data.get('password')
-    role = data.get('role', 'b2c') # Default to B2C if not specified
 
     if not email or not password:
-        AuditLogService().log_action(None, 'LOGIN_ATTEMPT_FAIL', f"Missing email or password for role {role}", success=False, ip_address=request.remote_addr)
-        return jsonify({'message': 'Missing email or password'}), 400
+        return jsonify(message="Email and password are required"), 400
 
-    user = get_user_by_email(email, role)
+    db = get_db_connection()
+    cursor = db.cursor()
 
-    if not user:
-        AuditLogService().log_action(None, 'LOGIN_FAIL', f"User not found: {email}, role: {role}", success=False, ip_address=request.remote_addr)
-        return jsonify({'message': 'User not found or invalid role'}), 401 # Generic message for security
-
-    if not check_password_hash(user['password_hash'], password):
-        AuditLogService().log_action(user['id'], 'LOGIN_FAIL', "Incorrect password", success=False, ip_address=request.remote_addr, role=role)
-        return jsonify({'message': 'Incorrect password'}), 401
-
-    if role == 'b2b' and not user['is_approved']:
-        AuditLogService().log_action(user['id'], 'LOGIN_B2B_FAIL_NOT_APPROVED', "Account not approved", success=False, ip_address=request.remote_addr, role=role)
-        return jsonify({'message': 'B2B account not yet approved'}), 403
-    
-    if role == 'b2b' and user['status'] == 'suspended':
-        AuditLogService().log_action(user['id'], 'LOGIN_B2B_FAIL_SUSPENDED', "Account suspended", success=False, ip_address=request.remote_addr, role=role)
-        return jsonify({'message': 'B2B account is suspended'}), 403
-
-
-    token_payload = {
-        'user_id': user['id'],
-        'role': role,
-        'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=current_app.config.get('JWT_EXPIRATION_HOURS', 24))
-    }
-    if role == 'admin': # Admins are a special type of B2C user for simplicity here, or could be separate
-        token_payload['is_admin'] = True # Or check against a dedicated admin table/flag
-
-    token = jwt.encode(token_payload, current_app.config['SECRET_KEY'], algorithm="HS256")
-    
-    user_info = {
-        'userId': user['id'],
-        'email': user['email'],
-        'role': role
-    }
-    if role == 'b2c':
-        user_info['name'] = user['name']
-    elif role == 'b2b':
-        user_info['company_name'] = user['company_name']
-        user_info['contact_name'] = user['contact_name']
-        user_info['siret'] = user['siret']
-
-
-    AuditLogService().log_action(user['id'], 'LOGIN_SUCCESS', f"Role: {role}", success=True, ip_address=request.remote_addr, role=role)
-    return jsonify({'message': 'Login successful', 'token': token, 'user': user_info}), 200
-
-
-@auth_bp.route('/api/user/profile', methods=['GET'])
-@login_required # This decorator sets g.current_user_id and g.current_user_role
-def get_user_profile():
-    user_id = g.current_user_id
-    role = g.current_user_role
-    db = get_db()
-
-    if role == 'b2c':
-        user = db.execute('SELECT id, name, email, address_shipping, address_billing, phone, created_at FROM users_b2c WHERE id = ?', (user_id,)).fetchone()
-    elif role == 'b2b':
-        user = db.execute('SELECT id, company_name, siret, vat_number, contact_name, email, phone, billing_address, shipping_address, is_approved, status, created_at FROM users_b2b WHERE id = ?', (user_id,)).fetchone()
-    else: # Should not happen if login_required works
-        AuditLogService().log_action(user_id, 'GET_PROFILE_FAIL', 'Invalid role in token', success=False, ip_address=request.remote_addr, role=role)
-        return jsonify({'message': 'Invalid user role specified in token'}), 400
-
-    if not user:
-        AuditLogService().log_action(user_id, 'GET_PROFILE_FAIL', 'User not found', success=False, ip_address=request.remote_addr, role=role)
-        return jsonify({'message': 'User not found'}), 404
-
-    # Convert sqlite3.Row to dict for JSON serialization
-    profile_data = dict(user)
-    # Remove password hash for security
-    if 'password_hash' in profile_data:
-        del profile_data['password_hash']
-    
-    AuditLogService().log_action(user_id, 'GET_PROFILE_SUCCESS', '', success=True, ip_address=request.remote_addr, role=role)
-    return jsonify(profile_data), 200
-
-
-@auth_bp.route('/api/user/profile', methods=['PUT'])
-@login_required
-def update_user_profile():
-    user_id = g.current_user_id
-    role = g.current_user_role
-    db = get_db()
-    data = request.get_json()
-
-    if not data:
-        AuditLogService().log_action(user_id, 'UPDATE_PROFILE_FAIL', 'No data provided', success=False, ip_address=request.remote_addr, role=role)
-        return jsonify({'message': 'No data provided for update'}), 400
-
-    if role == 'b2c':
-        name = data.get('name')
-        email = data.get('email') # Consider if email change needs verification
-        address_shipping = data.get('address_shipping')
-        address_billing = data.get('address_billing')
-        phone = data.get('phone')
-        
-        # Validate email if changed
-        current_user = db.execute('SELECT email FROM users_b2c WHERE id = ?', (user_id,)).fetchone()
-        if email and email != current_user['email']:
-            if not is_valid_email(email):
-                AuditLogService().log_action(user_id, 'UPDATE_PROFILE_B2C_FAIL', f"Invalid new email format: {email}", success=False, ip_address=request.remote_addr, role=role)
-                return jsonify({'message': 'Invalid new email format'}), 400
-            existing_user = db.execute('SELECT id FROM users_b2c WHERE email = ? AND id != ?', (email, user_id)).fetchone()
-            if existing_user:
-                AuditLogService().log_action(user_id, 'UPDATE_PROFILE_B2C_FAIL', f"New email already in use: {email}", success=False, ip_address=request.remote_addr, role=role)
-                return jsonify({'message': 'This email address is already in use by another account.'}), 409
-        
-        fields_to_update = {}
-        if name is not None: fields_to_update['name'] = name
-        if email is not None and email != current_user['email']: fields_to_update['email'] = email # Only update if changed
-        if address_shipping is not None: fields_to_update['address_shipping'] = address_shipping
-        if address_billing is not None: fields_to_update['address_billing'] = address_billing
-        if phone is not None: fields_to_update['phone'] = phone
-
-        if not fields_to_update:
-            return jsonify({'message': 'No updatable fields provided or values are the same.'}), 200
-
-
-        set_clause = ", ".join([f"{key} = ?" for key in fields_to_update.keys()])
-        values = list(fields_to_update.values())
-        values.append(user_id)
-
-        try:
-            db.execute(f'UPDATE users_b2c SET {set_clause} WHERE id = ?', tuple(values))
-            db.commit()
-            AuditLogService().log_action(user_id, 'UPDATE_PROFILE_B2C_SUCCESS', f"Fields updated: {list(fields_to_update.keys())}", success=True, ip_address=request.remote_addr, role=role)
-            updated_user = dict(db.execute('SELECT id, name, email, address_shipping, address_billing, phone FROM users_b2c WHERE id = ?', (user_id,)).fetchone())
-            return jsonify({'message': 'B2C profile updated successfully', 'user': updated_user}), 200
-        except Exception as e:
-            current_app.logger.error(f"B2C Profile update error: {e}")
-            AuditLogService().log_action(user_id, 'UPDATE_PROFILE_B2C_FAIL', f"Server error: {str(e)}", success=False, ip_address=request.remote_addr, role=role)
-            return jsonify({'message': 'Could not update B2C profile, server error.'}), 500
-
-    elif role == 'b2b':
-        # B2B users might have more restricted updates or require re-approval for some changes.
-        # For now, allow updating contact_name, phone, shipping_address.
-        # Company name, SIRET, VAT, billing_address changes might need admin intervention.
-        contact_name = data.get('contact_name')
-        phone = data.get('phone')
-        shipping_address = data.get('shipping_address')
-        # email = data.get('email') # Email change for B2B might be complex due to approval status
-
-        fields_to_update = {}
-        if contact_name is not None: fields_to_update['contact_name'] = contact_name
-        if phone is not None: fields_to_update['phone'] = phone
-        if shipping_address is not None: fields_to_update['shipping_address'] = shipping_address
-        
-        # Example: if email is allowed to change
-        # current_b2b_user = db.execute('SELECT email FROM users_b2b WHERE id = ?', (user_id,)).fetchone()
-        # if email and email != current_b2b_user['email']:
-        #     if not is_valid_email(email):
-        #         return jsonify({'message': 'Invalid new email format'}), 400
-        #     existing_user = db.execute('SELECT id FROM users_b2b WHERE email = ? AND id != ?', (email, user_id)).fetchone()
-        #     if existing_user:
-        #         return jsonify({'message': 'This email address is already in use by another B2B account.'}), 409
-        #     fields_to_update['email'] = email
-
-        if not fields_to_update:
-            return jsonify({'message': 'No updatable fields provided or values are the same for B2B profile.'}), 200
-
-        set_clause = ", ".join([f"{key} = ?" for key in fields_to_update.keys()])
-        values = list(fields_to_update.values())
-        values.append(user_id)
-        
-        try:
-            db.execute(f'UPDATE users_b2b SET {set_clause} WHERE id = ?', tuple(values))
-            db.commit()
-            AuditLogService().log_action(user_id, 'UPDATE_PROFILE_B2B_SUCCESS', f"Fields updated: {list(fields_to_update.keys())}", success=True, ip_address=request.remote_addr, role=role)
-            updated_user = dict(db.execute('SELECT id, company_name, contact_name, email, phone, shipping_address, billing_address FROM users_b2b WHERE id = ?', (user_id,)).fetchone())
-            return jsonify({'message': 'B2B profile updated successfully', 'user': updated_user}), 200
-        except Exception as e:
-            current_app.logger.error(f"B2B Profile update error: {e}")
-            AuditLogService().log_action(user_id, 'UPDATE_PROFILE_B2B_FAIL', f"Server error: {str(e)}", success=False, ip_address=request.remote_addr, role=role)
-            return jsonify({'message': 'Could not update B2B profile, server error.'}), 500
-    else:
-        AuditLogService().log_action(user_id, 'UPDATE_PROFILE_FAIL', 'Invalid role for profile update', success=False, ip_address=request.remote_addr, role=role)
-        return jsonify({'message': 'Invalid user role for profile update'}), 400
-
-
-@auth_bp.route('/api/user/change-password', methods=['POST'])
-@login_required
-def change_password():
-    user_id = g.current_user_id
-    role = g.current_user_role
-    db = get_db()
-    data = request.get_json()
-
-    current_password = data.get('current_password')
-    new_password = data.get('new_password')
-
-    if not current_password or not new_password:
-        AuditLogService().log_action(user_id, 'CHANGE_PASSWORD_FAIL', 'Missing current or new password', success=False, ip_address=request.remote_addr, role=role)
-        return jsonify({'message': 'Current password and new password are required'}), 400
-
-    if not is_strong_password(new_password):
-        AuditLogService().log_action(user_id, 'CHANGE_PASSWORD_FAIL', 'New password not strong enough', success=False, ip_address=request.remote_addr, role=role)
-        return jsonify({'message': 'New password is not strong enough. Min 8 chars, upper, lower, digit.'}), 400
-
-    table_name = 'users_b2c' if role == 'b2c' else 'users_b2b'
-    user = db.execute(f'SELECT password_hash FROM {table_name} WHERE id = ?', (user_id,)).fetchone()
-
-    if not user or not check_password_hash(user['password_hash'], current_password):
-        AuditLogService().log_action(user_id, 'CHANGE_PASSWORD_FAIL', 'Incorrect current password', success=False, ip_address=request.remote_addr, role=role)
-        return jsonify({'message': 'Incorrect current password'}), 401
-    
-    new_hashed_password = generate_password_hash(new_password, method='pbkdf2:sha256')
     try:
-        db.execute(f'UPDATE {table_name} SET password_hash = ? WHERE id = ?', (new_hashed_password, user_id))
-        db.commit()
-        AuditLogService().log_action(user_id, 'CHANGE_PASSWORD_SUCCESS', '', success=True, ip_address=request.remote_addr, role=role)
-        return jsonify({'message': 'Password updated successfully'}), 200
+        cursor.execute("SELECT * FROM users WHERE email = ?", (email,))
+        user = cursor.fetchone()
+
+        if user and check_password_hash(user['password_hash'], password):
+            user_dict = dict(user) # Convert to dict for easier access
+            if not user_dict['is_verified'] and not user_dict['is_admin']:
+                 current_app.audit_log_service.log_action(
+                    action='user_login_attempt_failed', user_id=user_dict['id'], username=email,
+                    details={'reason': 'not_verified'}, success=False)
+                 return jsonify(message="Account not verified. Please check your email."), 403
+            
+            if user_dict['is_professional'] and user_dict['professional_status'] != 'approved' and not user_dict['is_admin']:
+                current_app.audit_log_service.log_action(
+                    action='user_login_attempt_failed', user_id=user_dict['id'], username=email,
+                    details={'reason': f"professional_status_{user_dict['professional_status']}"}, success=False)
+                return jsonify(message=f"Professional account status: {user_dict['professional_status']}. Contact support if approved."), 403
+
+            cursor.execute("UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?", (datetime.utcnow(), datetime.utcnow(), user_dict['id']))
+            db.commit()
+
+            # IMPORTANT: Replace this with actual JWT generation
+            # token = generate_jwt_token(user_dict['id'], is_admin=user_dict['is_admin'])
+            token = f"mock_auth_token_for_user_{user_dict['id']}"
+            if user_dict['is_admin']:
+                # Use a specific, identifiable token for admin during placeholder phase
+                token = current_app.config.get('ADMIN_BEARER_TOKEN_PLACEHOLDER', 'admin_token_placeholder')
+
+
+            current_app.audit_log_service.log_action(
+                action='user_login_success', user_id=user_dict['id'], username=email,
+                target_type='user', target_id=user_dict['id'],
+                details={'is_admin': user_dict['is_admin'], 'is_professional': user_dict['is_professional']}, success=True)
+            
+            # Prepare user data to return to frontend
+            user_data_to_return = {
+                'userId': user_dict['id'], 'email': user_dict['email'],
+                'firstName': user_dict['first_name'], 'lastName': user_dict['last_name'],
+                'isAdmin': user_dict['is_admin'], 'isProfessional': user_dict['is_professional'],
+                'professionalStatus': user_dict.get('professional_status'),
+                'companyName': user_dict.get('company_name') if user_dict['is_professional'] else None,
+                'preferredLanguage': user_dict.get('preferred_language', 'fr'),
+                # Add other fields as needed by the frontend, e.g., addresses
+                'billingAddress': json.loads(user_dict.get('billing_address') or '{}'),
+                'shippingAddress': json.loads(user_dict.get('shipping_address') or '{}'),
+            }
+            return jsonify(message="Login successful", token=token, user=user_data_to_return), 200
+        else:
+            current_app.audit_log_service.log_action(
+                action='user_login_attempt_failed', username=email,
+                details={'reason': 'invalid_credentials'}, success=False)
+            return jsonify(message="Invalid email or password"), 401
+
+    except sqlite3.Error as e:
+        current_app.logger.error(f"Database error during login: {e}")
+        current_app.audit_log_service.log_action(action='user_login_failed_db_error', username=email, details={'error': str(e)}, success=False)
+        return jsonify(message=f"Database error: {str(e)}"), 500
     except Exception as e:
-        current_app.logger.error(f"Change password error: {e}")
-        AuditLogService().log_action(user_id, 'CHANGE_PASSWORD_FAIL', f"Server error: {str(e)}", success=False, ip_address=request.remote_addr, role=role)
-        return jsonify({'message': 'Could not update password, server error.'}), 500
+        current_app.logger.error(f"Unexpected error during login: {e}")
+        current_app.audit_log_service.log_action(action='user_login_failed_unexpected', username=email, details={'error': str(e)}, success=False)
+        return jsonify(message=f"An unexpected error occurred: {str(e)}"), 500
 
-
-@auth_bp.route('/api/forgot-password', methods=['POST'])
-def forgot_password():
+# --- Professional Registration (B2B) ---
+@auth_bp.route('/register/professional', methods=['POST'])
+def register_professional():
     data = request.get_json()
+    if not data:
+        return jsonify(message="Invalid JSON data"), 400
+
     email = data.get('email')
-    role = data.get('role', 'b2c') # Assume B2C if not specified, or require it
+    password = data.get('password')
+    first_name = data.get('firstName')
+    last_name = data.get('lastName')
+    phone_number = data.get('phoneNumber')
+    company_name = data.get('companyName')
+    vat_number = data.get('vatNumber')
+    siret_number = data.get('siretNumber')
+    billing_address_data = data.get('billingAddress', {}) # Expects an object: {street, city, postalCode, country}
+    shipping_address_data = data.get('shippingAddress', {})
 
-    if not email:
-        return jsonify({'message': 'Email is required'}), 400
-    
-    # For security, always return a success-like message to prevent email enumeration
-    # Actual password reset logic (token generation, email sending) would go here.
-    user = get_user_by_email(email, role)
-    if user:
-        # 1. Generate a unique, short-lived reset token
-        reset_token_payload = {
-            'user_id': user['id'],
-            'role': role,
-            'email': email, # include email for verification on reset
-            'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=current_app.config.get('PASSWORD_RESET_EXPIRATION_HOURS', 1))
-        }
-        reset_token = jwt.encode(reset_token_payload, current_app.config['SECRET_KEY'] + "_reset", algorithm="HS256") # Use a different secret or append to it
+    required_prof_fields = [email, password, first_name, last_name, company_name, vat_number, siret_number, 
+                            billing_address_data.get('street'), billing_address_data.get('city'), 
+                            billing_address_data.get('postalCode'), billing_address_data.get('country')]
+    if not all(required_prof_fields):
+        return jsonify(message="Missing required fields for professional registration. Ensure all address fields are provided."), 400
+    if not is_valid_email(email):
+        current_app.audit_log_service.log_action(action='prof_register_attempt_failed', username=email, details={'reason': 'invalid_email_format', 'company': company_name}, success=False)
+        return jsonify(message="Invalid email format"), 400
+    if not is_strong_password(password):
+        current_app.audit_log_service.log_action(action='prof_register_attempt_failed', username=email, details={'reason': 'weak_password', 'company': company_name}, success=False)
+        return jsonify(message="Password is not strong enough."), 400
 
-        # 2. Store token or a hash of it with user ID and expiry (optional, if not relying solely on JWT expiry)
-        # db = get_db()
-        # db.execute('INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)', 
-        #            (user['id'], generate_password_hash(reset_token), datetime.datetime.utcnow() + datetime.timedelta(hours=1)))
-        # db.commit()
+    db = get_db_connection()
+    cursor = db.cursor()
+
+    try:
+        cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
+        if cursor.fetchone():
+            current_app.audit_log_service.log_action(action='prof_register_attempt_failed', username=email, details={'reason': 'email_exists', 'company': company_name}, success=False)
+            return jsonify(message="Email already registered"), 409
         
-        # 3. Send email with reset link (e.g., /reset-password?token=<reset_token>)
-        # This part needs an actual email sending utility
-        reset_link = f"{request.host_url.rstrip('/')}/reset-password.html?token={reset_token}&role={role}"
-        print(f"Simulating password reset email to {email} for role {role}. Link: {reset_link}")
-        # send_password_reset_email(email, reset_link) # Placeholder for actual email sending
-        AuditLogService().log_action(user['id'] if user else None, 'FORGOT_PASSWORD_REQUEST', f"Email: {email}, Role: {role}", success=True, ip_address=request.remote_addr, role=role)
-    else:
-        # Log attempt for non-existent email but still return generic success to user
-        AuditLogService().log_action(None, 'FORGOT_PASSWORD_ATTEMPT_UNKNOWN_EMAIL', f"Email: {email}, Role: {role}", success=False, ip_address=request.remote_addr)
-        print(f"Password reset attempted for non-existent email/role: {email}/{role}")
+        # Optional: Check for unique VAT/SIRET if strictly needed and not handled by other processes
+        # cursor.execute("SELECT id FROM users WHERE vat_number = ? OR siret_number = ?", (vat_number, siret_number))
+        # if cursor.fetchone():
+        #     current_app.audit_log_service.log_action(action='prof_register_attempt_failed', username=email, details={'reason': 'vat_or_siret_exists', 'company': company_name}, success=False)
+        #     return jsonify(message="VAT number or SIRET number already registered."), 409
 
-    return jsonify({'message': 'If your email is registered, you will receive a password reset link.'}), 200
+        password_hash_val = generate_password_hash(password)
+        billing_address_json = json.dumps(billing_address_data)
+        shipping_address_json = json.dumps(shipping_address_data if shipping_address_data else billing_address_data) # Default shipping to billing if not provided
+        
+        professional_status = 'pending' if current_app.config.get('B2B_APPROVAL_REQUIRED', True) else 'approved'
+        # Professional accounts are typically verified upon approval by admin, or if no approval is needed.
+        is_verified_on_reg = not current_app.config.get('B2B_APPROVAL_REQUIRED', True)
+        verification_token_prof = secrets.token_urlsafe(32) if not is_verified_on_reg else None
 
 
-@auth_bp.route('/api/reset-password', methods=['POST'])
-def reset_password_with_token():
+        cursor.execute('''
+            INSERT INTO users (email, password_hash, first_name, last_name, phone_number,
+                               is_professional, professional_status, company_name, vat_number, siret_number,
+                               billing_address, shipping_address, is_verified, verification_token, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (email, password_hash_val, first_name, last_name, phone_number,
+              True, professional_status, company_name, vat_number, siret_number,
+              billing_address_json, shipping_address_json, is_verified_on_reg, verification_token_prof, datetime.utcnow()))
+        user_id = cursor.lastrowid
+        db.commit()
+
+        current_app.audit_log_service.log_action(
+            action='prof_user_registered', user_id=user_id, username=email,
+            target_type='user', target_id=user_id,
+            details={'company_name': company_name, 'vat_number': vat_number, 'status': professional_status}, success=True)
+        
+        # TODO: Send email to admin for approval if B2B_APPROVAL_REQUIRED and status is 'pending'
+        # send_admin_b2b_approval_request_email(admin_email, user_details)
+        # TODO: Send confirmation email to professional user (mentioning approval process if applicable)
+        # send_professional_registration_confirmation_email(email, user_details)
+        
+        message_response = "Professional account registered successfully."
+        if professional_status == 'pending':
+            message_response += " Your account is pending review and approval by our team."
+        elif is_verified_on_reg:
+             message_response += " Your account has been automatically approved."
+
+
+        return jsonify(message=message_response, userId=user_id, professionalStatus=professional_status), 201
+
+    except sqlite3.Error as e:
+        db.rollback()
+        current_app.logger.error(f"Database error during professional registration: {e}")
+        current_app.audit_log_service.log_action(action='prof_register_failed_db_error', username=email, details={'error': str(e), 'company': company_name}, success=False)
+        return jsonify(message=f"Database error: {str(e)}"), 500
+    except Exception as e:
+        db.rollback()
+        current_app.logger.error(f"Unexpected error during professional registration: {e}")
+        current_app.audit_log_service.log_action(action='prof_register_failed_unexpected', username=email, details={'error': str(e), 'company': company_name}, success=False)
+        return jsonify(message=f"An unexpected error occurred: {str(e)}"), 500
+
+# --- Email Verification ---
+@auth_bp.route('/verify-email', methods=['POST']) # Or GET if token is in query param
+def verify_email():
+    token = request.args.get('token') # If GET
+    if not token:
+        data = request.get_json()
+        token = data.get('token') if data else None # If POST
+
+    if not token:
+        return jsonify(message="Verification token is required"), 400
+
+    db = get_db_connection()
+    cursor = db.cursor()
+    try:
+        cursor.execute("SELECT * FROM users WHERE verification_token = ?", (token,))
+        user = cursor.fetchone()
+
+        if not user:
+            current_app.audit_log_service.log_action(action='email_verify_failed_invalid_token', details={'token': token}, success=False)
+            return jsonify(message="Invalid or expired verification token."), 400
+        
+        user_dict = dict(user)
+        if user_dict['is_verified']:
+            current_app.audit_log_service.log_action(action='email_verify_already_verified', user_id=user_dict['id'], username=user_dict['email'], success=True)
+            return jsonify(message="Email already verified."), 200
+
+
+        cursor.execute("UPDATE users SET is_verified = TRUE, verification_token = NULL, updated_at = ? WHERE id = ?", 
+                       (datetime.utcnow(), user_dict['id']))
+        db.commit()
+
+        current_app.audit_log_service.log_action(
+            action='email_verified_success', user_id=user_dict['id'], username=user_dict['email'],
+            target_type='user', target_id=user_dict['id'], success=True)
+        return jsonify(message="Email verified successfully. You can now log in."), 200
+
+    except Exception as e:
+        db.rollback()
+        current_app.logger.error(f"Error during email verification: {e}")
+        current_app.audit_log_service.log_action(action='email_verify_failed_error', details={'token': token, 'error': str(e)}, success=False)
+        return jsonify(message=f"An error occurred during email verification: {str(e)}"), 500
+
+
+# --- Password Reset ---
+@auth_bp.route('/request-password-reset', methods=['POST'])
+def request_password_reset():
     data = request.get_json()
+    if not data or 'email' not in data:
+        return jsonify(message="Email is required"), 400
+    email = data['email']
+
+    db = get_db_connection()
+    cursor = db.cursor()
+    cursor.execute("SELECT id, email, is_verified FROM users WHERE email = ?", (email,))
+    user = cursor.fetchone()
+
+    if user:
+        user_dict = dict(user)
+        # Optionally, only allow password reset for verified accounts
+        # if not user_dict['is_verified']:
+        #     current_app.audit_log_service.log_action(action='password_reset_request_unverified_email', username=email, success=False)
+        #     return jsonify(message="Please verify your email before resetting password."), 403 # Or same success message
+
+        reset_token = secrets.token_urlsafe(32)
+        expires_at = datetime.utcnow() + timedelta(hours=current_app.config.get('PASSWORD_RESET_TOKEN_EXPIRES_HOURS', 1))
+        cursor.execute("UPDATE users SET reset_token = ?, reset_token_expires = ?, updated_at = ? WHERE id = ?",
+                       (reset_token, expires_at, datetime.utcnow(), user_dict['id']))
+        db.commit()
+        
+        # TODO: Send email with reset_token
+        # reset_link = f"{current_app.config.get('FRONTEND_URL', '')}/reset-password.html?token={reset_token}" # Ensure this matches frontend
+        # send_password_reset_email(email, reset_link) # Implement this email sending function
+        current_app.logger.info(f"Password reset token for {email}: {reset_token}") # Log for development
+        current_app.audit_log_service.log_action(
+            action='password_reset_requested', user_id=user_dict['id'], username=email,
+            target_type='user', target_id=user_dict['id'], success=True)
+    else: 
+        # User not found, still return a generic success message to prevent email enumeration
+        current_app.audit_log_service.log_action(action='password_reset_request_unknown_email', username=email, success=False)
+
+    return jsonify(message="If your email is registered with us, you will receive a password reset link shortly."), 200
+
+@auth_bp.route('/reset-password', methods=['POST'])
+def reset_password():
+    data = request.get_json()
+    if not data: return jsonify(message="Invalid JSON data"), 400
+
     token = data.get('token')
-    new_password = data.get('new_password')
-    # role = data.get('role') # Role might be embedded in token or passed if not
+    new_password = data.get('newPassword')
 
     if not token or not new_password:
-        return jsonify({'message': 'Token and new password are required'}), 400
-
+        return jsonify(message="Token and new password are required"), 400
     if not is_strong_password(new_password):
-        return jsonify({'message': 'New password is not strong enough. Min 8 chars, upper, lower, digit.'}), 400
+        current_app.audit_log_service.log_action(action='password_reset_failed_weak_password', details={'token_prefix': token[:6] if token else None}, success=False)
+        return jsonify(message="New password is not strong enough."), 400
 
-    try:
-        payload = jwt.decode(token, current_app.config['SECRET_KEY'] + "_reset", algorithms=["HS256"])
-        user_id = payload['user_id']
-        role = payload['role'] # Get role from token
-        # email_from_token = payload['email'] # Optional: verify against user's current email
-    except jwt.ExpiredSignatureError:
-        AuditLogService().log_action(None, 'RESET_PASSWORD_FAIL', 'Expired token', success=False, ip_address=request.remote_addr)
-        return jsonify({'message': 'Password reset token has expired.'}), 401
-    except jwt.InvalidTokenError:
-        AuditLogService().log_action(None, 'RESET_PASSWORD_FAIL', 'Invalid token', success=False, ip_address=request.remote_addr)
-        return jsonify({'message': 'Invalid password reset token.'}), 401
+    db = get_db_connection()
+    cursor = db.cursor()
+    cursor.execute("SELECT * FROM users WHERE reset_token = ? AND reset_token_expires > ?",
+                   (token, datetime.utcnow()))
+    user = cursor.fetchone()
 
-    # Optional: Check if token has been used or invalidated in DB
-    # db = get_db()
-    # stored_token = db.execute('SELECT * FROM password_reset_tokens WHERE user_id = ? AND used = FALSE AND expires_at > ?', 
-    #                           (user_id, datetime.datetime.utcnow())).fetchone() # This requires a more complex token storage
-    # if not stored_token or not check_password_hash(stored_token['token_hash'], token): # If storing hash
-    #     return jsonify({'message': 'Invalid or expired reset token.'}), 401
-
-
-    table_name = 'users_b2c' if role == 'b2c' else 'users_b2b'
-    new_hashed_password = generate_password_hash(new_password, method='pbkdf2:sha256')
-
-    try:
-        db = get_db()
-        db.execute(f'UPDATE {table_name} SET password_hash = ? WHERE id = ?', (new_hashed_password, user_id))
-        # Optional: Mark token as used
-        # db.execute('UPDATE password_reset_tokens SET used = TRUE WHERE id = ?', (stored_token['id'],))
-        db.commit()
-        AuditLogService().log_action(user_id, 'RESET_PASSWORD_SUCCESS', '', success=True, ip_address=request.remote_addr, role=role)
-        return jsonify({'message': 'Password has been reset successfully.'}), 200
-    except Exception as e:
-        current_app.logger.error(f"Reset password error: {e}")
-        AuditLogService().log_action(user_id, 'RESET_PASSWORD_FAIL', f"Server error: {str(e)}", success=False, ip_address=request.remote_addr, role=role)
-        return jsonify({'message': 'Could not reset password, server error.'}), 500
-
-
-@auth_bp.route('/api/check-auth', methods=['GET'])
-@login_required
-def check_auth_status():
-    # If @login_required passes, the user is authenticated.
-    # g.current_user is set by the decorator.
-    user_info = {
-        'userId': g.current_user['id'],
-        'email': g.current_user['email'],
-        'role': g.current_user_role
-    }
-    if g.current_user_role == 'b2c':
-        user_info['name'] = g.current_user['name']
-    elif g.current_user_role == 'b2b':
-        user_info['company_name'] = g.current_user['company_name']
-        user_info['contact_name'] = g.current_user['contact_name']
-        user_info['is_approved'] = g.current_user['is_approved']
-        user_info['status'] = g.current_user['status']
+    if not user:
+        current_app.audit_log_service.log_action(action='password_reset_failed_invalid_token', details={'token_prefix': token[:6] if token else None}, success=False)
+        return jsonify(message="Invalid or expired password reset token."), 400
     
-    return jsonify({'isAuthenticated': True, 'user': user_info}), 200
+    user_dict = dict(user)
+    new_password_hash_val = generate_password_hash(new_password)
+    cursor.execute("UPDATE users SET password_hash = ?, reset_token = NULL, reset_token_expires = NULL, updated_at = ?, is_verified = TRUE WHERE id = ?", # Also mark as verified
+                   (new_password_hash_val, datetime.utcnow(), user_dict['id']))
+    db.commit()
 
+    current_app.audit_log_service.log_action(
+        action='password_reset_success', user_id=user_dict['id'], username=user_dict['email'],
+        target_type='user', target_id=user_dict['id'], success=True)
+    
+    # TODO: Send password change confirmation email
+    # send_password_changed_confirmation_email(user_dict['email'])
+    return jsonify(message="Your password has been reset successfully."), 200
+
+# --- Get Current User Info (Example, needs proper auth) ---
+@auth_bp.route('/me', methods=['GET'])
+def get_current_user():
+    # This endpoint requires authentication (e.g., a valid JWT token)
+    # For now, it's a placeholder.
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify(message="Authentication required"), 401
+    
+    token = auth_header.split(" ")[1]
+
+    # Placeholder: In a real app, decode JWT and get user ID
+    # For mock, if token is admin token, return admin user, else a mock user
+    db = get_db_connection()
+    cursor = db.cursor()
+    user_id_from_token = None
+
+    if token == current_app.config.get('ADMIN_BEARER_TOKEN_PLACEHOLDER', 'admin_token_placeholder'):
+        admin_cursor = db.execute("SELECT id FROM users WHERE is_admin = TRUE ORDER BY id ASC LIMIT 1")
+        admin_user_row = admin_cursor.fetchone()
+        if admin_user_row: user_id_from_token = admin_user_row['id']
+    elif token.startswith("mock_auth_token_for_user_"):
+        try:
+            user_id_from_token = int(token.split("_")[-1])
+        except ValueError:
+            return jsonify(message="Invalid mock token format"), 401
+    else: # Actual JWT decoding would go here
+        # try:
+        #   payload = jwt.decode(token, current_app.config['JWT_SECRET_KEY'], algorithms=['HS256'])
+        #   user_id_from_token = payload['sub'] # 'sub' is standard for subject (user_id)
+        # except jwt.ExpiredSignatureError:
+        #   return jsonify(message="Token has expired"), 401
+        # except jwt.InvalidTokenError:
+        #   return jsonify(message="Invalid token"), 401
+        return jsonify(message="Invalid or unhandled token type for /me endpoint"), 401
+
+
+    if not user_id_from_token:
+        return jsonify(message="User not identified from token"), 401
+
+    cursor.execute("SELECT id, email, first_name, last_name, is_admin, is_professional, professional_status, company_name, phone_number, billing_address, shipping_address, preferred_language FROM users WHERE id = ?", (user_id_from_token,))
+    user = cursor.fetchone()
+
+    if not user:
+        return jsonify(message="User not found"), 404
+    
+    user_data = dict(user)
+    try:
+        user_data['billing_address'] = json.loads(user_data.get('billing_address') or '{}')
+        user_data['shipping_address'] = json.loads(user_data.get('shipping_address') or '{}')
+    except json.JSONDecodeError:
+        user_data['billing_address'] = {}
+        user_data['shipping_address'] = {}
+
+    return jsonify(user_data), 200
+
+# --- Update User Profile (Example) ---
+@auth_bp.route('/me/update', methods=['PUT'])
+def update_current_user():
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify(message="Authentication required"), 401
+    token = auth_header.split(" ")[1]
+    
+    # Placeholder for user ID extraction from token (same logic as /me)
+    user_id_from_token = None
+    db = get_db_connection() # Get DB connection early
+    if token == current_app.config.get('ADMIN_BEARER_TOKEN_PLACEHOLDER', 'admin_token_placeholder'):
+        admin_cursor = db.execute("SELECT id FROM users WHERE is_admin = TRUE ORDER BY id ASC LIMIT 1")
+        admin_user_row = admin_cursor.fetchone()
+        if admin_user_row: user_id_from_token = admin_user_row['id']
+    elif token.startswith("mock_auth_token_for_user_"):
+        try: user_id_from_token = int(token.split("_")[-1])
+        except ValueError: return jsonify(message="Invalid mock token format"), 401
+    else: return jsonify(message="Invalid or unhandled token type for /me/update endpoint"), 401 # JWT logic here
+
+    if not user_id_from_token: return jsonify(message="User not identified from token"), 401
+
+    data = request.get_json()
+    if not data: return jsonify(message="Invalid JSON data"), 400
+
+    allowed_fields = ['first_name', 'last_name', 'phone_number', 'billing_address', 'shipping_address', 'preferred_language']
+    update_fields_sql = []
+    update_values_sql = []
+
+    for field in allowed_fields:
+        if field in data:
+            update_fields_sql.append(f"{field} = ?")
+            value = data[field]
+            if field in ['billing_address', 'shipping_address']:
+                value = json.dumps(value if isinstance(value, dict) else {})
+            update_values_sql.append(value)
+
+    if not update_fields_sql:
+        return jsonify(message="No updatable fields provided"), 400
+
+    update_fields_sql.append("updated_at = ?")
+    update_values_sql.append(datetime.utcnow())
+    update_values_sql.append(user_id_from_token)
+
+    sql_query = f"UPDATE users SET {', '.join(update_fields_sql)} WHERE id = ?"
+    
+    cursor = db.cursor()
+    try:
+        cursor.execute("SELECT * FROM users WHERE id = ?", (user_id_from_token,))
+        user = cursor.fetchone()
+        if not user: return jsonify(message="User not found"), 404
+
+        cursor.execute(sql_query, tuple(update_values_sql))
+        db.commit()
+
+        current_app.audit_log_service.log_action(
+            action='user_profile_updated', user_id=user_id_from_token, username=user['email'],
+            target_type='user', target_id=user_id_from_token,
+            details={'updated_fields': [f.split(' = ?')[0] for f in update_fields_sql if 'updated_at' not in f]}, success=True)
+        
+        # Fetch updated user data to return
+        cursor.execute("SELECT id, email, first_name, last_name, is_admin, is_professional, professional_status, company_name, phone_number, billing_address, shipping_address, preferred_language FROM users WHERE id = ?", (user_id_from_token,))
+        updated_user_data = dict(cursor.fetchone())
+        try:
+            updated_user_data['billing_address'] = json.loads(updated_user_data.get('billing_address') or '{}')
+            updated_user_data['shipping_address'] = json.loads(updated_user_data.get('shipping_address') or '{}')
+        except json.JSONDecodeError:
+            updated_user_data['billing_address'] = {}
+            updated_user_data['shipping_address'] = {}
+
+        return jsonify(message="Profile updated successfully", user=updated_user_data), 200
+    except sqlite3.Error as e:
+        db.rollback()
+        current_app.logger.error(f"Database error updating profile for user {user_id_from_token}: {e}")
+        current_app.audit_log_service.log_action(action='user_profile_update_failed_db', user_id=user_id_from_token, details={'error': str(e)}, success=False)
+        return jsonify(message=f"Database error: {str(e)}"), 500
+    except Exception as e:
+        db.rollback()
+        current_app.logger.error(f"Error updating profile for user {user_id_from_token}: {e}")
+        current_app.audit_log_service.log_action(action='user_profile_update_failed', user_id=user_id_from_token, details={'error': str(e)}, success=False)
+        return jsonify(message=f"An error occurred: {str(e)}"), 500
