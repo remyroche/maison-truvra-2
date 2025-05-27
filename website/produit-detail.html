@@ -124,6 +124,36 @@
                             <p id="product-pairing-suggestions" class="leading-relaxed">Suggestions d'accords à venir...</p>
                         </div>
 
+                        <div id="product-reviews-container" class="mt-10 pt-6 border-t border-brand-warm-taupe/30">
+                            <h3 class="text-xl font-serif text-brand-near-black mb-4" data-translate-key="Avis_Clients">Avis Clients</h3>
+                            <div id="reviews-list" class="space-y-4 mb-6">
+                                <p class="text-sm text-brand-warm-taupe italic" data-translate-key="Chargement_avis">Chargement des avis...</p>
+                            </div>
+                            <form id="submit-review-form" style="display:none;" class="mt-6 p-4 border border-brand-warm-taupe/50 rounded-md">
+                                <h4 class="text-lg font-semibold text-brand-near-black mb-3" data-translate-key="Laisser_un_avis">Laisser un avis</h4>
+                                <div class="mb-3">
+                                    <label for="review-rating" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Votre_note">Votre note (sur 5)</label>
+                                    <select id="review-rating" name="rating" class="form-input-checkout w-full sm:w-1/2">
+                                        <option value="5">5 - Excellent</option>
+                                        <option value="4">4 - Très bien</option>
+                                        <option value="3">3 - Moyen</option>
+                                        <option value="2">2 - Pas mal</option>
+                                        <option value="1">1 - Décevant</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="review-comment" class="block text-sm font-medium text-brand-near-black mb-1" data-translate-key="Votre_commentaire">Votre commentaire (optionnel)</label>
+                                    <textarea id="review-comment" name="comment_text" rows="3" class="form-textarea-checkout w-full"></textarea>
+                                </div>
+                                <button type="submit" class="btn-primary" data-translate-key="Soumettre_avis">Soumettre l'avis</button>
+                                <div id="review-form-message" class="text-sm mt-2"></div>
+                            </form>
+                            <p id="review-login-prompt" class="text-sm mt-4" style="display:none;">
+                                <a href="compte.html" class="text-brand-classic-gold hover:underline" data-translate-key="Connectez_vous_pour_laisser_avis">Connectez-vous</a> pour laisser un avis.
+                            </p>
+                        </div>
+
+                        
                          <div class="mt-10 pt-6 border-t border-brand-warm-taupe/30">
                             <h3 class="text-xl font-serif text-brand-near-black mb-4">Avis Clients</h3>
                             <p id="product-reviews" class="text-sm text-brand-warm-taupe italic">Aucun avis pour le moment. Soyez le premier à partager votre expérience !</p>
